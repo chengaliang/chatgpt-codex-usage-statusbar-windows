@@ -32,20 +32,53 @@ internal sealed class HistoryPoint
 internal sealed class HistoryStore
 {
     private const int MaxPoints = 500;
-    private const int RetentionDays = 30;
     private readonly JavaScriptSerializer serializer;
+    private int retentionDays;
 
     public string HistoryPath { get; private set; }
+    public int RetentionDays
+    {
+        get { return retentionDays; }
+        private set { retentionDays = NormalizeRetentionDays(value); }
+    }
 
     public HistoryStore()
-        : this(Path.Combine(LocalStoragePaths.RootDirectory, "history.json"))
+        : this(Path.Combine(LocalStoragePaths.RootDirectory, "history.json"), 30)
+    {
+    }
+
+    public HistoryStore(int retentionDays)
+        : this(Path.Combine(LocalStoragePaths.RootDirectory, "history.json"), retentionDays)
     {
     }
 
     internal HistoryStore(string historyPath)
+        : this(historyPath, 30)
+    {
+    }
+
+    internal HistoryStore(string historyPath, int retentionDays)
     {
         HistoryPath = historyPath;
+        RetentionDays = retentionDays;
         serializer = new JavaScriptSerializer();
+        if (File.Exists(HistoryPath))
+        {
+            // 启动阶段先清理已有超期记录，避免离线期间一直不刷新而绕过新的保留周期。
+            Load();
+        }
+    }
+
+    /// <summary>
+    /// 更新历史保留周期；仅在已有历史文件时立即裁剪，避免用户改设置时凭空创建空文件。
+    /// </summary>
+    public void SetRetentionDays(int days)
+    {
+        RetentionDays = days;
+        if (File.Exists(HistoryPath))
+        {
+            Trim();
+        }
     }
 
     public IList<HistoryPoint> Load()
@@ -64,12 +97,14 @@ internal sealed class HistoryStore
                 BackupBrokenFile();
                 return points;
             }
+            bool skippedInvalidPoint = false;
             foreach (HistoryPointDocument item in document.Points)
             {
                 DateTimeOffset observedAt;
                 if (item == null || string.IsNullOrWhiteSpace(item.ProviderId) || item.LimitWindowSeconds <= 0 ||
                     !TryParseDate(item.ObservedAt, out observedAt))
                 {
+                    skippedInvalidPoint = true;
                     continue;
                 }
                 points.Add(new HistoryPoint(
@@ -79,7 +114,13 @@ internal sealed class HistoryStore
                     ParseDate(item.ResetAt),
                     observedAt));
             }
+            int countBeforeTrim = points.Count;
             Trim(points, DateTimeOffset.UtcNow);
+            if (skippedInvalidPoint || points.Count != countBeforeTrim)
+            {
+                // 读取时同步回写裁剪结果，避免旧记录继续留在磁盘上绕过新的隐私保留设置。
+                Save(points);
+            }
             return points;
         }
         catch (Exception)
@@ -192,7 +233,7 @@ internal sealed class HistoryStore
         }
     }
 
-    private static void Trim(IList<HistoryPoint> points, DateTimeOffset now)
+    private void Trim(IList<HistoryPoint> points, DateTimeOffset now)
     {
         DateTimeOffset cutoff = now.AddDays(-RetentionDays);
         for (int index = points.Count - 1; index >= 0; index--)
@@ -206,6 +247,11 @@ internal sealed class HistoryStore
         {
             points.RemoveAt(0);
         }
+    }
+
+    private static int NormalizeRetentionDays(int days)
+    {
+        return AppSettings.IsSupportedHistoryRetentionDays(days) ? days : 30;
     }
 
     private void BackupBrokenFile()

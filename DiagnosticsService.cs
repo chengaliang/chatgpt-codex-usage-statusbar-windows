@@ -43,6 +43,9 @@ internal sealed class DiagnosticsService
         }
         report.AppendLine("开机自启：" + (autoStartEnabled ? "已开启" : "已关闭"));
         report.AppendLine("刷新周期：" + safeSettings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture) + " 分钟");
+        report.AppendLine("历史保留：" + safeSettings.HistoryRetentionDays.ToString(CultureInfo.InvariantCulture) + " 天");
+        report.AppendLine("启动延迟：" + safeSettings.LaunchDelaySeconds.ToString(CultureInfo.InvariantCulture) + " 秒");
+        report.AppendLine("启动更新检查：" + (safeSettings.AutoCheckUpdates ? "已开启（仅提示）" : "已关闭"));
         report.AppendLine("主题：" + GetThemeText(safeSettings.Theme));
         report.AppendLine("背景样式：" + GetBackgroundStyleText(safeSettings.BackgroundStyle));
         report.AppendLine("通知：" + (safeSettings.NotificationsEnabled ? "已开启（阈值 " + safeSettings.NotificationThresholdPercent.ToString(CultureInfo.InvariantCulture) + "%）" : "已关闭"));
@@ -88,12 +91,16 @@ internal sealed class DiagnosticsService
     {
         switch (mode)
         {
+            case ThemeMode.System:
+                return "跟随系统";
             case ThemeMode.Light:
                 return "浅色";
             case ThemeMode.Graphite:
                 return "石墨";
-            default:
+            case ThemeMode.Dark:
                 return "深色";
+            default:
+                return "跟随系统";
         }
     }
 }

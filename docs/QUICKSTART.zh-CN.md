@@ -71,9 +71,9 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 
 右键选择“运行诊断”会先重新查询一次，再显示 OAuth 配置、计划、网络模式、额度窗口数量、最近查询时间和启动项状态。选择“复制诊断信息”可复制一份适合提交 Issue 的脱敏摘要，其中不包含 Token、账户 ID、代理地址或完整响应。
 
-右键选择“设置”可以调整自动刷新周期（1/5/10/15/30/60 分钟）、跟随系统/深色/浅色/石墨主题、背景实色或两档透明度、是否记住窗口位置，以及是否在额度达到阈值时弹出通知。透明度采用有限档位，保证文字和点击区域始终清晰可用。
+右键选择“设置”可以调整自动刷新周期（1/5/10/15/30/60 分钟）、历史保留周期（7/30/90 天）、跟随系统/深色/浅色/石墨主题、背景实色或两档透明度、开机后的首次查询延迟、是否在启动时检查更新（仅提示，不自动安装）、是否记住窗口位置，以及是否在额度达到阈值时弹出通知。透明度采用有限档位，保证文字和点击区域始终清晰可用。
 
-右键选择“查看额度详情”或双击状态栏，可以查看所有额度窗口、最近成功时间和最多 30 天的本地百分比趋势。选择“清除本地缓存与历史”只删除本项目数据，不会删除 Codex 登录。
+右键选择“查看额度详情”或双击状态栏，可以查看所有额度窗口、最近成功时间和按设置保留 7/30/90 天的本地百分比趋势。选择“清除本地缓存与历史”只删除本项目数据，不会删除 Codex 登录。
 
 ## 操作方式
 
@@ -85,15 +85,16 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | 查看详情 | 双击状态栏或右键选择“查看额度详情” |
 | 设置、选项与诊断 | 右键状态栏或托盘图标 |
 
-程序默认每 5 分钟自动刷新一次，也可以在设置中选择其他周期。拖动过窗口后，自动定位不会再抢回你选择的位置；开启“记住上次位置”后，下次启动会恢复该位置。右键“检查更新”只读取公开 Release 元数据，确认后打开 GitHub 页面，不会后台覆盖运行中的文件。
+程序默认每 5 分钟自动刷新一次，也可以在设置中选择其他周期。开机自启时可设置 0/5/15/30 秒延迟，让代理和 Codex CLI 有时间完成初始化；开启“启动时检查更新”后只会在首次查询完成后提示公开 Release，不会自动下载或替换文件。拖动过窗口后，自动定位不会再抢回你选择的位置；开启“记住上次位置”后，下次启动会恢复该位置。右键“检查更新”只读取公开 Release 元数据，确认后打开 GitHub 页面，不会后台覆盖运行中的文件。
 
 ## 从源码编译
 
 Windows 自带 .NET Framework C# 编译器，可以直接编译：
 
 ```powershell
-$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
   /out:SubscriptionStatus.exe `
   /reference:System.dll `
@@ -139,6 +140,6 @@ $env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
 - OAuth Token 只在内存中用于固定 HTTPS 请求，不写日志、不写回文件、不上传 GitHub。
 - Tooltip 只显示账户 ID 的末四位。
 - 右键复制的诊断摘要会主动隐藏 Token、账户 ID、代理地址和完整响应，提交前仍请自行快速检查。
-- 本地缓存和 30 天历史只保存 Provider、窗口秒数、百分比和时间，可从右键菜单一键删除。
+- 本地缓存和按设置保留 7/30/90 天的历史只保存 Provider、窗口秒数、百分比和时间，可从右键菜单一键删除。
 - 更新检查只读取公开 GitHub Release 元数据，确认后打开下载页，不会自动替换正在运行的程序。
 - 官方后端接口可能变化，接口异常时程序只显示错误状态，不显示响应原文。

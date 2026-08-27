@@ -27,9 +27,14 @@ internal enum ThemeMode
 internal sealed class AppSettings
 {
     private static readonly int[] SupportedRefreshIntervals = { 1, 5, 10, 15, 30, 60 };
+    private static readonly int[] SupportedHistoryRetentionDays = { 7, 30, 90 };
+    private static readonly int[] SupportedLaunchDelaySeconds = { 0, 5, 15, 30 };
 
     public int RefreshIntervalMinutes { get; set; }
+    public int HistoryRetentionDays { get; set; }
     public bool AutoStartEnabled { get; set; }
+    public int LaunchDelaySeconds { get; set; }
+    public bool AutoCheckUpdates { get; set; }
     public BackgroundStyle BackgroundStyle { get; set; }
     public ThemeMode Theme { get; set; }
     public bool NotificationsEnabled { get; set; }
@@ -42,7 +47,10 @@ internal sealed class AppSettings
     public AppSettings()
     {
         RefreshIntervalMinutes = 5;
+        HistoryRetentionDays = 30;
         AutoStartEnabled = true;
+        LaunchDelaySeconds = 0;
+        AutoCheckUpdates = false;
         BackgroundStyle = BackgroundStyle.Opaque;
         Theme = ThemeMode.System;
         NotificationsEnabled = false;
@@ -68,6 +76,16 @@ internal sealed class AppSettings
             RefreshIntervalMinutes = 5;
         }
 
+        if (!IsSupportedHistoryRetentionDays(HistoryRetentionDays))
+        {
+            HistoryRetentionDays = 30;
+        }
+
+        if (!IsSupportedLaunchDelaySeconds(LaunchDelaySeconds))
+        {
+            LaunchDelaySeconds = 0;
+        }
+
         if (!Enum.IsDefined(typeof(BackgroundStyle), BackgroundStyle))
         {
             BackgroundStyle = BackgroundStyle.Opaque;
@@ -89,7 +107,10 @@ internal sealed class AppSettings
         return new AppSettings
         {
             RefreshIntervalMinutes = RefreshIntervalMinutes,
+            HistoryRetentionDays = HistoryRetentionDays,
             AutoStartEnabled = AutoStartEnabled,
+            LaunchDelaySeconds = LaunchDelaySeconds,
+            AutoCheckUpdates = AutoCheckUpdates,
             BackgroundStyle = BackgroundStyle,
             Theme = Theme,
             NotificationsEnabled = NotificationsEnabled,
@@ -116,5 +137,39 @@ internal sealed class AppSettings
     public static int[] GetSupportedRefreshIntervals()
     {
         return (int[])SupportedRefreshIntervals.Clone();
+    }
+
+    public static bool IsSupportedHistoryRetentionDays(int days)
+    {
+        foreach (int supported in SupportedHistoryRetentionDays)
+        {
+            if (supported == days)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static int[] GetSupportedHistoryRetentionDays()
+    {
+        return (int[])SupportedHistoryRetentionDays.Clone();
+    }
+
+    public static bool IsSupportedLaunchDelaySeconds(int seconds)
+    {
+        foreach (int supported in SupportedLaunchDelaySeconds)
+        {
+            if (supported == seconds)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static int[] GetSupportedLaunchDelaySeconds()
+    {
+        return (int[])SupportedLaunchDelaySeconds.Clone();
     }
 }

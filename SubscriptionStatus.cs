@@ -604,6 +604,9 @@ internal sealed class StatusWindow : Form
     private bool autoStartEnabled;
     private string autoStartError;
     private bool exitRequested;
+    private bool startupUpdateCheckCompleted;
+    private Task refreshInFlight;
+    private Task updateCheckInFlight;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -644,7 +647,7 @@ internal sealed class StatusWindow : Form
         settings = settingsStore.Load();
         cancellation = new CancellationTokenSource();
         usageCache = new UsageCache();
-        historyStore = new HistoryStore();
+        historyStore = new HistoryStore(settings.HistoryRetentionDays);
         updateService = new UpdateService();
         usageSnapshot = usageCache.Load();
         if (usageSnapshot == null)
@@ -815,7 +818,13 @@ internal sealed class StatusWindow : Form
         {
             // 延后一轮消息再定位，确保无边框窗口完成句柄创建和初次布局。
             BeginInvoke((MethodInvoker)delegate { PositionMiniWindow(); });
+            if (settings.LaunchDelaySeconds > 0)
+            {
+                // 开机自启时允许代理、网络和 Codex CLI 完成初始化，同时先保留可用的缓存画面。
+                await Task.Delay(settings.LaunchDelaySeconds * 1000, cancellation.Token);
+            }
             await RefreshQuotaAsync();
+            await CheckUpdatesOnStartupAsync();
         }
         catch (Exception)
         {
@@ -1009,7 +1018,10 @@ internal sealed class StatusWindow : Form
     private void CopySettings(AppSettings source)
     {
         settings.RefreshIntervalMinutes = source.RefreshIntervalMinutes;
+        settings.HistoryRetentionDays = source.HistoryRetentionDays;
         settings.AutoStartEnabled = source.AutoStartEnabled;
+        settings.LaunchDelaySeconds = source.LaunchDelaySeconds;
+        settings.AutoCheckUpdates = source.AutoCheckUpdates;
         settings.BackgroundStyle = source.BackgroundStyle;
         settings.Theme = source.Theme;
         settings.NotificationsEnabled = source.NotificationsEnabled;
@@ -1019,6 +1031,7 @@ internal sealed class StatusWindow : Form
         settings.PositionX = source.PositionX;
         settings.PositionY = source.PositionY;
         settings.Normalize();
+        historyStore.SetRetentionDays(settings.HistoryRetentionDays);
     }
 
     private void AddBackgroundStyleItem(ToolStripMenuItem parent, BackgroundStyle style, string text)
@@ -1110,9 +1123,25 @@ internal sealed class StatusWindow : Form
         }
     }
 
-    private async Task RefreshQuotaAsync()
+    private Task RefreshQuotaAsync()
     {
-        if (isRefreshing || cancellation.IsCancellationRequested)
+        if (cancellation.IsCancellationRequested)
+        {
+            return Task.FromResult(0);
+        }
+
+        if (refreshInFlight != null && !refreshInFlight.IsCompleted)
+        {
+            return refreshInFlight;
+        }
+
+        refreshInFlight = RefreshQuotaCoreAsync();
+        return refreshInFlight;
+    }
+
+    private async Task RefreshQuotaCoreAsync()
+    {
+        if (cancellation.IsCancellationRequested)
         {
             return;
         }
@@ -1145,6 +1174,32 @@ internal sealed class StatusWindow : Form
                 // 某些无边框窗口管理器会在异步首帧后重置位置，查询完成后再校正一次。
                 PositionMiniWindow();
             }
+        }
+    }
+
+    /// <summary>
+    /// 按用户显式开启的偏好在首次查询后检查一次公开 Release；默认关闭且不自动下载或替换文件。
+    /// </summary>
+    private async Task CheckUpdatesOnStartupAsync()
+    {
+        if (startupUpdateCheckCompleted || !settings.AutoCheckUpdates || cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        startupUpdateCheckCompleted = true;
+        try
+        {
+            await Task.Delay(1500, cancellation.Token);
+            await CheckForUpdatesAsync(null);
+        }
+        catch (TaskCanceledException)
+        {
+            // 退出时取消延迟属于正常关闭路径，不需要弹出错误。
+        }
+        catch (Exception)
+        {
+            // 自动检查失败不应干扰状态栏常驻；用户仍可从右键菜单手动检查。
         }
     }
 
@@ -1315,7 +1370,23 @@ internal sealed class StatusWindow : Form
     /// <summary>
     /// 查询公开 Release 并让用户决定是否打开下载页。应用不会在后台替换正在运行的可执行文件。
     /// </summary>
-    private async Task CheckForUpdatesAsync(ToolStripMenuItem menuItem)
+    private Task CheckForUpdatesAsync(ToolStripMenuItem menuItem)
+    {
+        if (cancellation.IsCancellationRequested)
+        {
+            return Task.FromResult(0);
+        }
+
+        if (updateCheckInFlight != null && !updateCheckInFlight.IsCompleted)
+        {
+            return updateCheckInFlight;
+        }
+
+        updateCheckInFlight = CheckForUpdatesCoreAsync(menuItem);
+        return updateCheckInFlight;
+    }
+
+    private async Task CheckForUpdatesCoreAsync(ToolStripMenuItem menuItem)
     {
         if (menuItem != null)
         {

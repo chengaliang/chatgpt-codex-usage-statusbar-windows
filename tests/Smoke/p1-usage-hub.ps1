@@ -26,8 +26,15 @@ $settingsType = $assembly.GetType('AppSettings')
 $themeType = $assembly.GetType('ThemeMode')
 $settingsProbe = [Activator]::CreateInstance($settingsType)
 $settingsProbe.Theme = [Enum]::ToObject($themeType, 99)
+$settingsProbe.HistoryRetentionDays = 999
+$settingsProbe.LaunchDelaySeconds = 999
 $settingsProbe.Normalize()
 if ($settingsProbe.Theme.ToString() -ne 'System') { throw 'invalid theme was not normalized' }
+if ($settingsProbe.HistoryRetentionDays -ne 30) { throw 'invalid history retention was not normalized' }
+if ($settingsProbe.LaunchDelaySeconds -ne 0) { throw 'invalid launch delay was not normalized' }
+foreach ($name in @('HistoryRetentionDays', 'LaunchDelaySeconds', 'AutoCheckUpdates')) {
+    if ($null -eq $settingsType.GetProperty($name)) { throw "AppSettings property missing: $name" }
+}
 $paletteType = $assembly.GetType('ThemePalette')
 if ($null -eq $paletteType.GetMethod('Create')) { throw 'ThemePalette factory is missing' }
 
@@ -80,7 +87,24 @@ $historyPoints = $history.Load()
 if ($historyPoints.Count -ne 1) { throw 'HistoryStore did not deduplicate identical observations' }
 $historyJson = [IO.File]::ReadAllText($historyPath)
 if ($historyJson -match 'access_token|refresh_token|Bearer|account_id') { throw 'HistoryStore contains a sensitive field' }
+$historyRetentionCtor = $historyType.GetConstructor([Reflection.BindingFlags]'NonPublic,Instance', $null, [Type[]]@([string], [int]), $null)
+if ($null -eq $historyRetentionCtor) { throw 'HistoryStore retention constructor is missing' }
+$shortHistoryPath = Join-Path $tempRoot 'history-short.json'
+$shortHistory = $historyRetentionCtor.Invoke([object[]]@([string]$shortHistoryPath, [int]7))
+if ($shortHistory.RetentionDays -ne 7) { throw 'HistoryStore did not keep the configured retention period' }
+$oldLive = $usageType.GetMethod('LiveResult').Invoke($null, [object[]]@('chatgpt-codex', 'GPT Plus', $windows, [DateTimeOffset]::Now.AddDays(-8)))
+$shortHistory.Append($oldLive)
+if ($shortHistory.Load().Count -ne 0) { throw 'HistoryStore did not trim points outside the retention period' }
+$longHistoryPath = Join-Path $tempRoot 'history-existing.json'
+$longHistory = $historyCtor.Invoke([object[]]@([string]$longHistoryPath))
+$longHistory.Append($oldLive)
+$shortExisting = $historyRetentionCtor.Invoke([object[]]@([string]$longHistoryPath, [int]7))
+if ([IO.File]::ReadAllText($longHistoryPath) -notmatch '"Points"\s*:\s*\[\s*\]') { throw 'HistoryStore did not trim existing files during construction' }
+if ($shortExisting.Load().Count -ne 0) { throw 'HistoryStore did not keep trimmed files empty on load' }
+$shortHistory.SetRetentionDays(999)
+if ($shortHistory.RetentionDays -ne 30) { throw 'HistoryStore did not normalize an invalid retention period' }
 $history.Clear()
+$shortHistory.Clear()
 Remove-Item -LiteralPath $tempRoot -Recurse -Force
 
 $detailType = $assembly.GetType('UsageDetailsForm')
@@ -97,8 +121,16 @@ if ($details.AutoScaleMode.ToString() -ne 'Dpi') { throw 'UsageDetailsForm shoul
 $details.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))
-if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi') { throw 'SettingsForm window flags or DPI mode are invalid' }
+if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 400) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
 $settingsForm.Dispose()
+$diagnosticsType = $assembly.GetType('DiagnosticsService')
+$diagnostics = [Activator]::CreateInstance($diagnosticsType)
+$loadingSnapshot = $assembly.GetType('QuotaSnapshot').GetMethod('Loading').Invoke($null, $null)
+$report = $diagnosticsType.GetMethod('Build').Invoke($diagnostics, [object[]]@($loadingSnapshot, 'oauth-readable', 'system-network', $true, $false, $settingsProbe))
+$themeMarker = ([char]0x4e3b).ToString() + ([char]0x9898).ToString() + ([char]0xff1a).ToString() + ([char]0x8ddf).ToString() + ([char]0x968f).ToString() + ([char]0x7cfb).ToString() + ([char]0x7edf).ToString()
+$historyMarker = ([char]0x5386).ToString() + ([char]0x53f2).ToString() + ([char]0x4fdd).ToString() + ([char]0x7559).ToString() + ([char]0xff1a).ToString() + '30 ' + ([char]0x5929).ToString()
+$updateMarker = ([char]0x542f).ToString() + ([char]0x52a8).ToString() + ([char]0x66f4).ToString() + ([char]0x65b0).ToString() + ([char]0x68c0).ToString() + ([char]0x67e5).ToString() + ([char]0xff1a).ToString() + ([char]0x5df2).ToString() + ([char]0x5173).ToString() + ([char]0x95ed).ToString()
+if ($report -notmatch [regex]::Escape($themeMarker) -or $report -notmatch [regex]::Escape($historyMarker) -or $report -notmatch [regex]::Escape($updateMarker)) { throw 'Diagnostics report did not include normalized startup/history settings' }
 
 $updateType = $assembly.GetType('UpdateService')
 if ($null -eq $updateType) { throw 'UpdateService type is missing' }

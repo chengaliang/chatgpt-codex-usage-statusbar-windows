@@ -94,7 +94,7 @@ Assert the two types and methods exist, then assert the cache DTO property list 
 
 - [ ] **Step 2: Implement atomic cache and bounded history**
 
-Use serializer DTOs containing only provider ID, whitelist plan, windows, timestamps and status. Reject null windows, clamp percentages, trim old UTC points and cap the list at 500 before atomic replacement.
+Use serializer DTOs containing only provider ID, whitelist plan, windows, timestamps and status. Reject null windows, clamp percentages, trim old UTC points according to the selected 7/30/90-day retention and cap the list at 500 before atomic replacement.
 
 - [ ] **Step 3: Integrate stale fallback**
 

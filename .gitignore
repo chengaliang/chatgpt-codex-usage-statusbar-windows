@@ -15,6 +15,7 @@ obj/
 *.tmp
 *.bak
 *.next.exe
+*.review.exe
 *.user
 .vs/
 

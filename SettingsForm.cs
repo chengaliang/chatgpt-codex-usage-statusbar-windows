@@ -9,9 +9,12 @@ internal sealed class SettingsForm : Form
 {
     private readonly AppSettings draft;
     private readonly ComboBox refreshCombo;
+    private readonly ComboBox historyRetentionCombo;
     private readonly ComboBox backgroundCombo;
     private readonly ComboBox themeCombo;
     private readonly CheckBox autoStartCheck;
+    private readonly ComboBox launchDelayCombo;
+    private readonly CheckBox autoCheckUpdatesCheck;
     private readonly CheckBox notificationsCheck;
     private readonly CheckBox restorePositionCheck;
     private readonly NumericUpDown thresholdInput;
@@ -26,7 +29,7 @@ internal sealed class SettingsForm : Form
         palette = ThemePalette.Create(draft.Theme);
 
         Text = "状态栏设置";
-        ClientSize = new Size(390, 325);
+        ClientSize = new Size(390, 430);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -41,9 +44,12 @@ internal sealed class SettingsForm : Form
         layout.Dock = DockStyle.Fill;
         layout.Padding = new Padding(16, 14, 16, 12);
         layout.ColumnCount = 2;
-        layout.RowCount = 8;
+        layout.RowCount = 11;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 142f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
@@ -59,6 +65,16 @@ internal sealed class SettingsForm : Form
             refreshCombo.Items.Add(minutes + " 分钟");
         }
         refreshCombo.SelectedIndex = FindRefreshIndex(draft.RefreshIntervalMinutes);
+
+        historyRetentionCombo = CreateCombo();
+        foreach (int days in AppSettings.GetSupportedHistoryRetentionDays())
+        {
+            historyRetentionCombo.Items.Add(days + " 天");
+        }
+        historyRetentionCombo.SelectedIndex = FindValueIndex(
+            AppSettings.GetSupportedHistoryRetentionDays(),
+            draft.HistoryRetentionDays,
+            1);
 
         backgroundCombo = CreateCombo();
         backgroundCombo.Items.Add("实色");
@@ -77,6 +93,21 @@ internal sealed class SettingsForm : Form
         autoStartCheck.Text = "随 Windows 启动";
         autoStartCheck.AutoSize = true;
         autoStartCheck.Checked = draft.AutoStartEnabled;
+
+        launchDelayCombo = CreateCombo();
+        launchDelayCombo.Items.Add("立即查询");
+        launchDelayCombo.Items.Add("启动后 5 秒");
+        launchDelayCombo.Items.Add("启动后 15 秒");
+        launchDelayCombo.Items.Add("启动后 30 秒");
+        launchDelayCombo.SelectedIndex = FindValueIndex(
+            AppSettings.GetSupportedLaunchDelaySeconds(),
+            draft.LaunchDelaySeconds,
+            0);
+
+        autoCheckUpdatesCheck = new CheckBox();
+        autoCheckUpdatesCheck.Text = "启动时检查更新（仅提示）";
+        autoCheckUpdatesCheck.AutoSize = true;
+        autoCheckUpdatesCheck.Checked = draft.AutoCheckUpdates;
 
         notificationsCheck = new CheckBox();
         notificationsCheck.Text = "额度接近阈值时通知";
@@ -97,12 +128,15 @@ internal sealed class SettingsForm : Form
         restorePositionCheck.Checked = draft.RestorePosition;
 
         AddRow(layout, 0, "自动刷新", refreshCombo);
-        AddRow(layout, 1, "主题", themeCombo);
-        AddRow(layout, 2, "背景样式", backgroundCombo);
-        AddRow(layout, 3, "开机启动", autoStartCheck);
-        AddRow(layout, 4, "通知", notificationsCheck);
-        AddRow(layout, 5, "通知阈值", thresholdInput);
-        AddRow(layout, 6, "窗口位置", restorePositionCheck);
+        AddRow(layout, 1, "历史保留", historyRetentionCombo);
+        AddRow(layout, 2, "主题", themeCombo);
+        AddRow(layout, 3, "背景样式", backgroundCombo);
+        AddRow(layout, 4, "开机启动", autoStartCheck);
+        AddRow(layout, 5, "启动延迟", launchDelayCombo);
+        AddRow(layout, 6, "启动更新检查", autoCheckUpdatesCheck);
+        AddRow(layout, 7, "通知", notificationsCheck);
+        AddRow(layout, 8, "通知阈值", thresholdInput);
+        AddRow(layout, 9, "窗口位置", restorePositionCheck);
 
         FlowLayoutPanel buttons = new FlowLayoutPanel();
         buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -125,7 +159,7 @@ internal sealed class SettingsForm : Form
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 7);
+        layout.Controls.Add(buttons, 0, 10);
         layout.SetColumnSpan(buttons, 2);
         ApplyControlTheme(layout);
         Controls.Add(layout);
@@ -196,6 +230,22 @@ internal sealed class SettingsForm : Form
         return 1;
     }
 
+    private static int FindValueIndex(int[] values, int selectedValue, int fallbackIndex)
+    {
+        if (values == null || values.Length == 0)
+        {
+            return -1;
+        }
+        for (int index = 0; index < values.Length; index++)
+        {
+            if (values[index] == selectedValue)
+            {
+                return index;
+            }
+        }
+        return Math.Max(0, Math.Min(values.Length - 1, fallbackIndex));
+    }
+
     private void OnNotificationsChanged(object sender, EventArgs e)
     {
         UpdateThresholdState();
@@ -216,9 +266,25 @@ internal sealed class SettingsForm : Form
         }
 
         draft.RefreshIntervalMinutes = intervals[selectedIndex];
+        int[] retentionValues = AppSettings.GetSupportedHistoryRetentionDays();
+        int retentionIndex = historyRetentionCombo.SelectedIndex;
+        if (retentionIndex < 0 || retentionIndex >= retentionValues.Length)
+        {
+            retentionIndex = 1;
+        }
+        draft.HistoryRetentionDays = retentionValues[retentionIndex];
+
+        int[] delayValues = AppSettings.GetSupportedLaunchDelaySeconds();
+        int delayIndex = launchDelayCombo.SelectedIndex;
+        if (delayIndex < 0 || delayIndex >= delayValues.Length)
+        {
+            delayIndex = 0;
+        }
+        draft.LaunchDelaySeconds = delayValues[delayIndex];
         draft.Theme = (ThemeMode)Math.Max(0, themeCombo.SelectedIndex);
         draft.BackgroundStyle = (BackgroundStyle)Math.Max(0, backgroundCombo.SelectedIndex);
         draft.AutoStartEnabled = autoStartCheck.Checked;
+        draft.AutoCheckUpdates = autoCheckUpdatesCheck.Checked;
         draft.NotificationsEnabled = notificationsCheck.Checked;
         draft.NotificationThresholdPercent = Decimal.ToInt32(thresholdInput.Value);
         draft.RestorePosition = restorePositionCheck.Checked;

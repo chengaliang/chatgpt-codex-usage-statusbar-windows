@@ -112,7 +112,7 @@ internal interface IUsageProvider : IDisposable
 ### 4.4 本地缓存与历史
 
 - `UsageCache` 保存最近一次成功快照，最多保存 1 个 JSON 文件；只包含窗口摘要、查询时间、ProviderId、计划白名单名和应用版本。
-- `HistoryStore` 保存最多 500 条或最近 30 天的摘要点，以原子替换写入；每次成功查询最多追加一条，按 ProviderId 和窗口秒数去重同一查询时间。
+- `HistoryStore` 保存最多 500 条或最近 7/30/90 天（默认 30 天）的摘要点，以原子替换写入；每次成功查询最多追加一条，按 ProviderId 和窗口秒数去重同一查询时间。
 - 历史记录不保存账户标签、账户 ID、响应原文、Token、代理地址、文件路径或异常堆栈。
 - 文件损坏时备份为 `.bak`，回退为空历史/无缓存，状态栏仍可启动。
 - 退出或手动清理只删除应用自己的 `%LOCALAPPDATA%\ChatGPTCodexUsageStatusBar` 子目录，不碰 Codex CLI 凭据。
@@ -160,7 +160,7 @@ UsageSnapshot --> UsageCache / HistoryStore / NotificationEvaluator
 新增设置字段：
 
 - `ThemeMode`：`System`、`Dark`、`Light`。
-- `DetailsPanelEnabled`、`HistoryRetentionDays`、`AutoCheckUpdates`、`LaunchDelaySeconds`。
+- `DetailsPanelEnabled`、`HistoryRetentionDays`（7/30/90 天）、`AutoCheckUpdates`、`LaunchDelaySeconds`（0/5/15/30 秒）。
 - 既有刷新、启动、透明度、通知、阈值、位置字段保持兼容。
 
 旧设置缺字段时使用安全默认值；非法枚举、周期、保留天数和延迟统一归一化。现有错误启动项 marker 迁移逻辑不得回归。设置 JSON 版本只用于本地迁移，不写入任何凭据。

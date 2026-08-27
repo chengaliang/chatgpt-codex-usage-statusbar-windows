@@ -16,7 +16,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Remove-Item -LiteralPath .\SubscriptionStatus.exe -Force -ErrorAction SilentlyContinue
-          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          if (-not (Test-Path -LiteralPath $csc)) {
+            $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
+          }
+          if (-not (Test-Path -LiteralPath $csc)) {
+            throw "In-box C# compiler was not found under $env:SystemRoot."
+          }
           $sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
           if ($sources.Count -eq 0) {
             throw 'No C# source files found in repository root.'

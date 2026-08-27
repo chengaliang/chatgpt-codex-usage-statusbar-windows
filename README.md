@@ -16,7 +16,7 @@
 
 - **Plan-agnostic**: renders any official `rate_limit` windows returned for the signed-in ChatGPT/Codex account; it does not assume Plus-only access.
 - **Offline-friendly cache**: keeps the latest successful quota locally and labels stale data clearly when the network or OAuth session is unavailable.
-- **Details and trends**: opens a taskbar-free detail view with every returned window, reset dates and a bounded 30-day local percentage history.
+- **Details and trends**: opens a taskbar-free detail view with every returned window, reset dates and a bounded 7/30/90-day local percentage history.
 - **Privacy-first**: reuses the local Codex OAuth session in memory, never asks for API keys, and never uploads or logs credentials.
 - **Useful at a glance**: shows 5-hour and 7-day usage, progress bars, local reset date/time, and a compact status indicator without opening a dashboard.
 - **Tiny native footprint**: one WinForms executable around a 320×40 overlay, with no runtime installer or background service.
@@ -33,8 +33,8 @@
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
 - **Tray-first workflow**: closing the bar hides it to the notification area instead of killing the process; double-click the tray icon to restore it, and use the tray menu to refresh, configure or exit.
-- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, and opt-in threshold notifications.
-- **Startup & diagnostics**: first launch enables current-user startup by default; right-click to toggle it, run a fresh health check, copy a redacted issue report, clear local data, or inspect update metadata.
+- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, 7/30/90-day local history, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, startup delay and opt-in threshold notifications.
+- **Startup & diagnostics**: first launch enables current-user startup by default; optionally delay the first query or check for updates on startup (prompt only); right-click to toggle startup, run a fresh health check, copy a redacted issue report, clear local data, or inspect update metadata.
 - **Safe updates**: manually checks GitHub Releases, accepts only GitHub HTTPS links, and exposes SHA-256 verification without silently replacing a running binary.
 - **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
 
@@ -73,15 +73,16 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | Details | Double-click the bar or choose **查看额度详情** |
 | Options | Right-click the bar or tray icon for settings and diagnostics |
 
-The default refresh cycle is five minutes. Change it, theme, background transparency, position restore, startup and notifications from **设置**. The detail view keeps only local percentages and reset times for up to 30 days. To remove those files, choose **清除本地缓存与历史**; this does not touch `auth.json`. To exit completely, choose **退出** from the bar or tray menu.
+The default refresh cycle is five minutes. Change it, history retention (7/30/90 days), theme, background transparency, startup delay, optional startup update prompt, position restore and notifications from **设置**. The detail view keeps only local percentages and reset times for the selected retention period. To remove those files, choose **清除本地缓存与历史**; this does not touch `auth.json`. To exit completely, choose **退出** from the bar or tray menu.
 
 ## Build From Source
 
 A Windows machine with .NET Framework 4.5+ can compile the WinForms source with the in-box C# compiler:
 
 ```powershell
-$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
   /out:SubscriptionStatus.exe `
   /reference:System.dll `
@@ -106,7 +107,7 @@ Choose **检查更新** from the bar's right-click menu. The app reads the lates
 - No token, response body, account ID or exception stack is written to a log file or displayed in the bar.
 - The tooltip masks the account ID and only shows its last four characters.
 - This project does not ask for, store or proxy OpenAI API keys.
-- The local cache and 30-day history contain only provider ID, window seconds, percentages and timestamps; they can be removed from the right-click menu.
+- The local cache and selected 7/30/90-day history contain only provider ID, window seconds, percentages and timestamps; they can be removed from the right-click menu.
 - Update checks query public GitHub Release metadata only; the app does not auto-download or replace a running executable.
 - The usage endpoint is a ChatGPT/Codex backend contract used by compatible clients and may change without notice. This project is not affiliated with OpenAI.
 
