@@ -7,6 +7,15 @@
 
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the UI at about 320×40 pixels.
 
+## Why This Project
+
+- **Plan-agnostic**: renders any official `rate_limit` windows returned for the signed-in ChatGPT/Codex account; it does not assume Plus-only access.
+- **Privacy-first**: reuses the local Codex OAuth session in memory, never asks for API keys, and never uploads or logs credentials.
+- **Useful at a glance**: shows 5-hour and 7-day usage, progress bars, local reset date/time, and a compact status indicator without opening a dashboard.
+- **Tiny native footprint**: one WinForms executable around a 320×40 overlay, with no runtime installer or background service.
+- **Network-flexible**: works with Windows system proxy settings or direct connection, with an explicit HTTP/HTTPS proxy option when needed.
+- **Easy to verify**: source code, an in-box .NET compiler command, and a Windows Actions build are included in the repository.
+
 ## Features
 
 - **Mini overlay**: approximately 320×40 pixels, pinned to the lower-right work area.
