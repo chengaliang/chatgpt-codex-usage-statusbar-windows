@@ -1,0 +1,274 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using System.Web.Script.Serialization;
+
+/// <summary>
+/// 本地额度趋势点。只保存 Provider、窗口秒数、百分比、重置时间和观测时间。
+/// </summary>
+internal sealed class HistoryPoint
+{
+    public string ProviderId { get; private set; }
+    public int LimitWindowSeconds { get; private set; }
+    public double UsedPercent { get; private set; }
+    public DateTimeOffset? ResetAt { get; private set; }
+    public DateTimeOffset ObservedAt { get; private set; }
+
+    public HistoryPoint(string providerId, int limitWindowSeconds, double usedPercent, DateTimeOffset? resetAt, DateTimeOffset observedAt)
+    {
+        ProviderId = string.IsNullOrWhiteSpace(providerId) ? "chatgpt-codex" : providerId;
+        LimitWindowSeconds = Math.Max(0, limitWindowSeconds);
+        UsedPercent = Math.Max(0d, Math.Min(100d, usedPercent));
+        ResetAt = resetAt;
+        ObservedAt = observedAt;
+    }
+}
+
+/// <summary>
+/// 以原子 JSON 文件维护有限历史，避免为了趋势图引入数据库或运行时依赖。
+/// </summary>
+internal sealed class HistoryStore
+{
+    private const int MaxPoints = 500;
+    private const int RetentionDays = 30;
+    private readonly JavaScriptSerializer serializer;
+
+    public string HistoryPath { get; private set; }
+
+    public HistoryStore()
+        : this(Path.Combine(LocalStoragePaths.RootDirectory, "history.json"))
+    {
+    }
+
+    internal HistoryStore(string historyPath)
+    {
+        HistoryPath = historyPath;
+        serializer = new JavaScriptSerializer();
+    }
+
+    public IList<HistoryPoint> Load()
+    {
+        List<HistoryPoint> points = new List<HistoryPoint>();
+        if (!File.Exists(HistoryPath))
+        {
+            return points;
+        }
+        try
+        {
+            string json = File.ReadAllText(HistoryPath, Encoding.UTF8);
+            HistoryDocument document = serializer.Deserialize<HistoryDocument>(json);
+            if (document == null || document.Points == null)
+            {
+                BackupBrokenFile();
+                return points;
+            }
+            foreach (HistoryPointDocument item in document.Points)
+            {
+                DateTimeOffset observedAt;
+                if (item == null || string.IsNullOrWhiteSpace(item.ProviderId) || item.LimitWindowSeconds <= 0 ||
+                    !TryParseDate(item.ObservedAt, out observedAt))
+                {
+                    continue;
+                }
+                points.Add(new HistoryPoint(
+                    item.ProviderId,
+                    item.LimitWindowSeconds,
+                    item.UsedPercent,
+                    ParseDate(item.ResetAt),
+                    observedAt));
+            }
+            Trim(points, DateTimeOffset.UtcNow);
+            return points;
+        }
+        catch (Exception)
+        {
+            BackupBrokenFile();
+            return points;
+        }
+    }
+
+    public void Append(UsageSnapshot snapshot)
+    {
+        if (snapshot == null || snapshot.Status != UsageStatus.Live || snapshot.Windows == null || !snapshot.QueriedAt.HasValue)
+        {
+            return;
+        }
+
+        List<HistoryPoint> points = new List<HistoryPoint>(Load());
+        DateTimeOffset observedAt = snapshot.QueriedAt.Value.ToUniversalTime();
+        foreach (UsageWindow window in snapshot.Windows)
+        {
+            if (window == null || window.LimitWindowSeconds <= 0)
+            {
+                continue;
+            }
+            RemoveDuplicate(points, snapshot.ProviderId, window.LimitWindowSeconds, observedAt);
+            points.Add(new HistoryPoint(snapshot.ProviderId, window.LimitWindowSeconds, window.UsedPercent, window.ResetAt, observedAt));
+        }
+        Trim(points, DateTimeOffset.UtcNow);
+        Save(points);
+    }
+
+    public void Trim()
+    {
+        List<HistoryPoint> points = new List<HistoryPoint>(Load());
+        Trim(points, DateTimeOffset.UtcNow);
+        Save(points);
+    }
+
+    public void Clear()
+    {
+        TryDelete(HistoryPath);
+        TryDelete(HistoryPath + ".tmp");
+        TryDelete(HistoryPath + ".bak");
+    }
+
+    private void Save(IList<HistoryPoint> points)
+    {
+        string temporaryPath = HistoryPath + ".tmp";
+        try
+        {
+            HistoryDocument document = new HistoryDocument { Version = 1, Points = new List<HistoryPointDocument>() };
+            foreach (HistoryPoint point in points)
+            {
+                document.Points.Add(new HistoryPointDocument
+                {
+                    ProviderId = point.ProviderId,
+                    LimitWindowSeconds = point.LimitWindowSeconds,
+                    UsedPercent = point.UsedPercent,
+                    ResetAt = FormatDate(point.ResetAt),
+                    ObservedAt = FormatDate(point.ObservedAt)
+                });
+            }
+            string directory = Path.GetDirectoryName(HistoryPath);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return;
+            }
+            Directory.CreateDirectory(directory);
+            string json = serializer.Serialize(document);
+            using (StreamWriter writer = new StreamWriter(temporaryPath, false, new UTF8Encoding(false)))
+            {
+                writer.Write(json);
+            }
+            if (!File.Exists(HistoryPath))
+            {
+                File.Move(temporaryPath, HistoryPath);
+                return;
+            }
+            try
+            {
+                File.Replace(temporaryPath, HistoryPath, null);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                File.Copy(temporaryPath, HistoryPath, true);
+                File.Delete(temporaryPath);
+            }
+            catch (IOException)
+            {
+                File.Copy(temporaryPath, HistoryPath, true);
+                File.Delete(temporaryPath);
+            }
+        }
+        catch (Exception)
+        {
+            TryDelete(temporaryPath);
+        }
+    }
+
+    private static void RemoveDuplicate(IList<HistoryPoint> points, string providerId, int seconds, DateTimeOffset observedAt)
+    {
+        for (int index = points.Count - 1; index >= 0; index--)
+        {
+            HistoryPoint point = points[index];
+            if (string.Equals(point.ProviderId, providerId, StringComparison.Ordinal) &&
+                point.LimitWindowSeconds == seconds && point.ObservedAt == observedAt)
+            {
+                points.RemoveAt(index);
+            }
+        }
+    }
+
+    private static void Trim(IList<HistoryPoint> points, DateTimeOffset now)
+    {
+        DateTimeOffset cutoff = now.AddDays(-RetentionDays);
+        for (int index = points.Count - 1; index >= 0; index--)
+        {
+            if (points[index].ObservedAt < cutoff)
+            {
+                points.RemoveAt(index);
+            }
+        }
+        while (points.Count > MaxPoints)
+        {
+            points.RemoveAt(0);
+        }
+    }
+
+    private void BackupBrokenFile()
+    {
+        try
+        {
+            if (!File.Exists(HistoryPath))
+            {
+                return;
+            }
+            string backupPath = HistoryPath + ".bak";
+            TryDelete(backupPath);
+            File.Move(HistoryPath, backupPath);
+        }
+        catch (Exception)
+        {
+            // 备份失败不阻止当前查询。
+        }
+    }
+
+    private static string FormatDate(DateTimeOffset? value)
+    {
+        return value.HasValue ? value.Value.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture) : string.Empty;
+    }
+
+    private static DateTimeOffset? ParseDate(string value)
+    {
+        DateTimeOffset parsed;
+        return TryParseDate(value, out parsed) ? parsed : (DateTimeOffset?)null;
+    }
+
+    private static bool TryParseDate(string value, out DateTimeOffset parsed)
+    {
+        return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out parsed);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception)
+        {
+            // 清理失败不覆盖主流程。
+        }
+    }
+
+    private sealed class HistoryDocument
+    {
+        public int Version { get; set; }
+        public List<HistoryPointDocument> Points { get; set; }
+    }
+
+    private sealed class HistoryPointDocument
+    {
+        public string ProviderId { get; set; }
+        public int LimitWindowSeconds { get; set; }
+        public double UsedPercent { get; set; }
+        public string ResetAt { get; set; }
+        public string ObservedAt { get; set; }
+    }
+}

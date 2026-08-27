@@ -15,6 +15,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Remove-Item -LiteralPath .\SubscriptionStatus.exe -Force -ErrorAction SilentlyContinue
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           $sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
           if ($sources.Count -eq 0) {
@@ -29,9 +30,36 @@ jobs:
             /reference:System.Net.Http.dll `
             /reference:System.Web.Extensions.dll `
             $sources
+          if ($LASTEXITCODE -ne 0) {
+            throw "csc failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Generate SHA-256 manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -LiteralPath .\SHA256SUMS.txt -Force -ErrorAction SilentlyContinue
+          $hash = (Get-FileHash -LiteralPath SubscriptionStatus.exe -Algorithm SHA256).Hash
+          "$hash  SubscriptionStatus.exe" | Set-Content -LiteralPath SHA256SUMS.txt -Encoding ascii
+
+      - name: Run offline smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "p0 smoke failed with exit code $LASTEXITCODE"
+          }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "p1 smoke failed with exit code $LASTEXITCODE"
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: chatgpt-codex-statusbar-windows
-          path: SubscriptionStatus.exe
+          path: |
+            SubscriptionStatus.exe
+            SHA256SUMS.txt

@@ -11,6 +11,17 @@ internal enum BackgroundStyle
 }
 
 /// <summary>
+/// 状态栏配色主题。主题只影响本地绘制，不改变 Provider、缓存或网络行为。
+/// </summary>
+internal enum ThemeMode
+{
+    System = 0,
+    Dark = 1,
+    Light = 2,
+    Graphite = 3
+}
+
+/// <summary>
 /// 当前用户的非敏感偏好。该模型只保存界面和调度设置，不允许承载 OAuth 或接口响应。
 /// </summary>
 internal sealed class AppSettings
@@ -20,6 +31,7 @@ internal sealed class AppSettings
     public int RefreshIntervalMinutes { get; set; }
     public bool AutoStartEnabled { get; set; }
     public BackgroundStyle BackgroundStyle { get; set; }
+    public ThemeMode Theme { get; set; }
     public bool NotificationsEnabled { get; set; }
     public int NotificationThresholdPercent { get; set; }
     public bool RestorePosition { get; set; }
@@ -32,6 +44,7 @@ internal sealed class AppSettings
         RefreshIntervalMinutes = 5;
         AutoStartEnabled = true;
         BackgroundStyle = BackgroundStyle.Opaque;
+        Theme = ThemeMode.System;
         NotificationsEnabled = false;
         NotificationThresholdPercent = 80;
         RestorePosition = true;
@@ -60,6 +73,11 @@ internal sealed class AppSettings
             BackgroundStyle = BackgroundStyle.Opaque;
         }
 
+        if (!Enum.IsDefined(typeof(ThemeMode), Theme))
+        {
+            Theme = ThemeMode.System;
+        }
+
         if (NotificationThresholdPercent < 50 || NotificationThresholdPercent > 100)
         {
             NotificationThresholdPercent = 80;
@@ -73,6 +91,7 @@ internal sealed class AppSettings
             RefreshIntervalMinutes = RefreshIntervalMinutes,
             AutoStartEnabled = AutoStartEnabled,
             BackgroundStyle = BackgroundStyle,
+            Theme = Theme,
             NotificationsEnabled = NotificationsEnabled,
             NotificationThresholdPercent = NotificationThresholdPercent,
             RestorePosition = RestorePosition,

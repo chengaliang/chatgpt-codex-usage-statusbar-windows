@@ -4,17 +4,19 @@
 
 ## 中文概览
 
-这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示 5 小时和 7 天窗口的用量、进度和下一次重置时间。
+这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；双击即可打开带趋势图的详情窗口。
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
-首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供立即刷新、运行诊断、复制脱敏诊断信息和打开项目主页，遇到问题可以直接把诊断摘要贴到 Issue。
+首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供立即刷新、额度详情、主题/透明度、运行诊断、复制脱敏诊断信息、清除本地缓存和检查更新，遇到问题可以直接把诊断摘要贴到 Issue。
 
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the UI at about 320×40 pixels.
 
 ## Why This Project
 
 - **Plan-agnostic**: renders any official `rate_limit` windows returned for the signed-in ChatGPT/Codex account; it does not assume Plus-only access.
+- **Offline-friendly cache**: keeps the latest successful quota locally and labels stale data clearly when the network or OAuth session is unavailable.
+- **Details and trends**: opens a taskbar-free detail view with every returned window, reset dates and a bounded 30-day local percentage history.
 - **Privacy-first**: reuses the local Codex OAuth session in memory, never asks for API keys, and never uploads or logs credentials.
 - **Useful at a glance**: shows 5-hour and 7-day usage, progress bars, local reset date/time, and a compact status indicator without opening a dashboard.
 - **Tiny native footprint**: one WinForms executable around a 320×40 overlay, with no runtime installer or background service.
@@ -24,15 +26,16 @@
 ## Features
 
 - **Mini overlay**: approximately 320×40 pixels, pinned to the lower-right work area.
-- **Official dynamic windows**: 5-hour and 7-day `used_percent` values with progress bars.
-- **Next reset time**: each window shows the local `MM/dd HH:mm`; hover for account suffix and error details.
-- **Plan-aware label**: shows the OAuth plan when available and uses a generic ChatGPT label when it is not; quota rendering is plan-agnostic.
+- **Official dynamic windows**: displays every official `rate_limit` window, preferring 5-hour and 7-day values in the mini bar when present.
+- **Next reset time**: each window shows the local `MM/dd HH:mm`; hover for cache age and safe error details.
+- **Plan-aware label**: preserves known Free, Go, Plus, Pro, Team, Business, Enterprise and Edu labels; unknown remote text is sanitized to a generic ChatGPT label.
 - **Local OAuth only**: reads `%USERPROFILE%\.codex\auth.json` or `%CODEX_HOME%\auth.json`; never writes credentials back.
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
 - **Tray-first workflow**: closing the bar hides it to the notification area instead of killing the process; double-click the tray icon to restore it, and use the tray menu to refresh, configure or exit.
-- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, opaque or two transparency levels, optional position restore, and opt-in threshold notifications.
-- **Startup & diagnostics**: first launch enables current-user startup by default; right-click to toggle it, run a fresh health check, copy a redacted issue report, or open the project page.
+- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, and opt-in threshold notifications.
+- **Startup & diagnostics**: first launch enables current-user startup by default; right-click to toggle it, run a fresh health check, copy a redacted issue report, clear local data, or inspect update metadata.
+- **Safe updates**: manually checks GitHub Releases, accepts only GitHub HTTPS links, and exposes SHA-256 verification without silently replacing a running binary.
 - **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
 
 ## Quick Start
@@ -54,7 +57,7 @@ The executable is also included in the repository for source review and offline 
 
 ### 2. Launch the mini bar
 
-Double-click [`start-statusbar.cmd`](start-statusbar.cmd) or [`launcher.vbs`](launcher.vbs). The first launch enables startup for the current Windows user; the app keeps one compact bar above the taskbar.
+Double-click [`start-statusbar.cmd`](start-statusbar.cmd) or [`launcher.vbs`](launcher.vbs). The first launch enables startup for the current Windows user; the app keeps one compact bar above the taskbar and follows the monitor where it starts.
 Without a custom proxy, the app uses Windows system proxy settings or a direct connection. If your network needs Clash Verge or another local HTTP/HTTPS proxy, set `CLASH_MIXED_PROXY` before launching:
 
 ```powershell
@@ -67,10 +70,10 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | Move | Drag any empty part of the bar |
 | Refresh | Click the circular-arrow icon |
 | Hide | Click the `×` icon; the process remains in the notification area |
-| Details | Hover over the bar |
+| Details | Double-click the bar or choose **查看额度详情** |
 | Options | Right-click the bar or tray icon for settings and diagnostics |
 
-The default refresh cycle is five minutes. Change it, background transparency, position restore, startup and notifications from **设置**. To exit completely, choose **退出** from the bar or tray menu.
+The default refresh cycle is five minutes. Change it, theme, background transparency, position restore, startup and notifications from **设置**. The detail view keeps only local percentages and reset times for up to 30 days. To remove those files, choose **清除本地缓存与历史**; this does not touch `auth.json`. To exit completely, choose **退出** from the bar or tray menu.
 
 ## Build From Source
 
@@ -92,6 +95,10 @@ $sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty Fu
 
 The repository also includes a GitHub Actions Windows build so source changes are compiled on every push and pull request.
 
+## Updating Safely
+
+Choose **检查更新** from the bar's right-click menu. The app reads the latest public GitHub Release and opens the release page only after you confirm. It never replaces the executable while it is running. If a release asset includes a SHA-256 digest, verify the downloaded `SubscriptionStatus.exe` before launching it; the reusable `UpdateService.VerifySha256` helper is covered by the P1 smoke test.
+
 ## Privacy and Security
 
 - **Never upload `auth.json`**. It contains OAuth credentials and is not part of this repository.
@@ -99,6 +106,8 @@ The repository also includes a GitHub Actions Windows build so source changes ar
 - No token, response body, account ID or exception stack is written to a log file or displayed in the bar.
 - The tooltip masks the account ID and only shows its last four characters.
 - This project does not ask for, store or proxy OpenAI API keys.
+- The local cache and 30-day history contain only provider ID, window seconds, percentages and timestamps; they can be removed from the right-click menu.
+- Update checks query public GitHub Release metadata only; the app does not auto-download or replace a running executable.
 - The usage endpoint is a ChatGPT/Codex backend contract used by compatible clients and may change without notice. This project is not affiliated with OpenAI.
 
 Read the step-by-step Chinese tutorial in [`docs/QUICKSTART.zh-CN.md`](docs/QUICKSTART.zh-CN.md).
@@ -115,7 +124,7 @@ The app uses Windows system proxy settings or a direct connection by default. If
 
 ### The bar is not visible
 
-Run [`start-statusbar.cmd`](start-statusbar.cmd) again. The app positions itself inside the primary work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
+Run [`start-statusbar.cmd`](start-statusbar.cmd) again or double-click the tray icon. The app positions itself inside the current monitor work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
 
 ### Startup or diagnostics
 

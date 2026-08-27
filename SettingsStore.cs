@@ -150,16 +150,7 @@ internal sealed class SettingsStore
 
     private static string GetDefaultSettingsPath()
     {
-        string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(root))
-        {
-            root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        }
-        if (string.IsNullOrWhiteSpace(root))
-        {
-            root = Path.GetTempPath();
-        }
-        return Path.Combine(root, "ChatGPTCodexUsageStatusBar", "settings.json");
+        return Path.Combine(LocalStoragePaths.RootDirectory, "settings.json");
     }
 
     private static void TryDelete(string path)

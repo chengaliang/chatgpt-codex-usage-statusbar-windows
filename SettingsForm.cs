@@ -10,10 +10,12 @@ internal sealed class SettingsForm : Form
     private readonly AppSettings draft;
     private readonly ComboBox refreshCombo;
     private readonly ComboBox backgroundCombo;
+    private readonly ComboBox themeCombo;
     private readonly CheckBox autoStartCheck;
     private readonly CheckBox notificationsCheck;
     private readonly CheckBox restorePositionCheck;
     private readonly NumericUpDown thresholdInput;
+    private readonly ThemePalette palette;
 
     public AppSettings Result { get; private set; }
 
@@ -21,24 +23,28 @@ internal sealed class SettingsForm : Form
     {
         draft = settings == null ? AppSettings.CreateDefault() : settings.Clone();
         draft.Normalize();
+        palette = ThemePalette.Create(draft.Theme);
 
         Text = "状态栏设置";
-        ClientSize = new Size(390, 285);
+        ClientSize = new Size(390, 325);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
-        AutoScaleMode = AutoScaleMode.None;
-        BackColor = SystemColors.Window;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96f, 96f);
+        BackColor = palette.BackgroundTop;
+        ForeColor = palette.PrimaryText;
 
         TableLayoutPanel layout = new TableLayoutPanel();
         layout.Dock = DockStyle.Fill;
         layout.Padding = new Padding(16, 14, 16, 12);
         layout.ColumnCount = 2;
-        layout.RowCount = 7;
+        layout.RowCount = 8;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 142f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
@@ -59,6 +65,13 @@ internal sealed class SettingsForm : Form
         backgroundCombo.Items.Add("半透明（85%）");
         backgroundCombo.Items.Add("高透明（65%）");
         backgroundCombo.SelectedIndex = (int)draft.BackgroundStyle;
+
+        themeCombo = CreateCombo();
+        themeCombo.Items.Add("跟随系统");
+        themeCombo.Items.Add("深色");
+        themeCombo.Items.Add("浅色");
+        themeCombo.Items.Add("石墨");
+        themeCombo.SelectedIndex = (int)draft.Theme;
 
         autoStartCheck = new CheckBox();
         autoStartCheck.Text = "随 Windows 启动";
@@ -84,11 +97,12 @@ internal sealed class SettingsForm : Form
         restorePositionCheck.Checked = draft.RestorePosition;
 
         AddRow(layout, 0, "自动刷新", refreshCombo);
-        AddRow(layout, 1, "背景样式", backgroundCombo);
-        AddRow(layout, 2, "开机启动", autoStartCheck);
-        AddRow(layout, 3, "通知", notificationsCheck);
-        AddRow(layout, 4, "通知阈值", thresholdInput);
-        AddRow(layout, 5, "窗口位置", restorePositionCheck);
+        AddRow(layout, 1, "主题", themeCombo);
+        AddRow(layout, 2, "背景样式", backgroundCombo);
+        AddRow(layout, 3, "开机启动", autoStartCheck);
+        AddRow(layout, 4, "通知", notificationsCheck);
+        AddRow(layout, 5, "通知阈值", thresholdInput);
+        AddRow(layout, 6, "窗口位置", restorePositionCheck);
 
         FlowLayoutPanel buttons = new FlowLayoutPanel();
         buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -111,8 +125,9 @@ internal sealed class SettingsForm : Form
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 6);
+        layout.Controls.Add(buttons, 0, 7);
         layout.SetColumnSpan(buttons, 2);
+        ApplyControlTheme(layout);
         Controls.Add(layout);
 
         AcceptButton = saveButton;
@@ -140,6 +155,32 @@ internal sealed class SettingsForm : Form
         control.Margin = new Padding(0, 2, 0, 2);
         layout.Controls.Add(label, 0, row);
         layout.Controls.Add(control, 1, row);
+    }
+
+    private void ApplyControlTheme(Control root)
+    {
+        root.BackColor = palette.BackgroundTop;
+        foreach (Control child in root.Controls)
+        {
+            if (child is Label || child is CheckBox)
+            {
+                child.ForeColor = palette.PrimaryText;
+                child.BackColor = Color.Transparent;
+            }
+            else if (child is ComboBox || child is NumericUpDown || child is Button)
+            {
+                child.ForeColor = palette.PrimaryText;
+                child.BackColor = palette.ControlBackground;
+            }
+            else
+            {
+                child.BackColor = palette.BackgroundTop;
+            }
+            if (child.HasChildren)
+            {
+                ApplyControlTheme(child);
+            }
+        }
     }
 
     private static int FindRefreshIndex(int minutes)
@@ -175,6 +216,7 @@ internal sealed class SettingsForm : Form
         }
 
         draft.RefreshIntervalMinutes = intervals[selectedIndex];
+        draft.Theme = (ThemeMode)Math.Max(0, themeCombo.SelectedIndex);
         draft.BackgroundStyle = (BackgroundStyle)Math.Max(0, backgroundCombo.SelectedIndex);
         draft.AutoStartEnabled = autoStartCheck.Checked;
         draft.NotificationsEnabled = notificationsCheck.Checked;

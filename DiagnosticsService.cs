@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Text;
 
 /// <summary>
@@ -25,18 +26,28 @@ internal sealed class DiagnosticsService
         report.AppendLine("系统：" + Environment.OSVersion.VersionString);
         report.AppendLine("运行时：.NET " + Environment.Version.ToString());
         report.AppendLine("进程：" + (IntPtr.Size * 8).ToString(CultureInfo.InvariantCulture) + " 位");
+        report.AppendLine("应用版本：v" + UpdateService.CurrentVersion);
+        report.AppendLine("DPI：每显示器感知");
         report.AppendLine(BuildOAuthLine(credentialDiagnostic));
         report.AppendLine(BuildProxyLine(proxyDiagnostic));
-        report.AppendLine("查询状态：" + (safeSnapshot.Success ? "正常" : "未成功"));
+        string queryStatus = !safeSnapshot.Success ? "未成功" : (safeSnapshot.IsStale ? "缓存" : "正常");
+        report.AppendLine("查询状态：" + queryStatus);
         report.AppendLine("计划显示：" + DiagnosticSanitizer.PlanName(safeSnapshot.PlanName));
         report.AppendLine("额度窗口：" + (safeSnapshot.Windows == null ? 0 : safeSnapshot.Windows.Count).ToString(CultureInfo.InvariantCulture));
         report.AppendLine("最近查询：" + (safeSnapshot.QueriedAt.HasValue
             ? safeSnapshot.QueriedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             : "未查询"));
+        if (safeSnapshot.LastLiveAt.HasValue)
+        {
+            report.AppendLine("最近成功：" + safeSnapshot.LastLiveAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+        }
         report.AppendLine("开机自启：" + (autoStartEnabled ? "已开启" : "已关闭"));
         report.AppendLine("刷新周期：" + safeSettings.RefreshIntervalMinutes.ToString(CultureInfo.InvariantCulture) + " 分钟");
+        report.AppendLine("主题：" + GetThemeText(safeSettings.Theme));
         report.AppendLine("背景样式：" + GetBackgroundStyleText(safeSettings.BackgroundStyle));
         report.AppendLine("通知：" + (safeSettings.NotificationsEnabled ? "已开启（阈值 " + safeSettings.NotificationThresholdPercent.ToString(CultureInfo.InvariantCulture) + "%）" : "已关闭"));
+        report.AppendLine("本地缓存：" + (File.Exists(Path.Combine(LocalStoragePaths.RootDirectory, "cache.json")) ? "可用" : "暂无"));
+        report.AppendLine("本地历史：" + (File.Exists(Path.Combine(LocalStoragePaths.RootDirectory, "history.json")) ? "可用" : "暂无"));
         if (hasAutoStartError)
         {
             report.AppendLine("启动项：检测到配置异常");
@@ -70,6 +81,19 @@ internal sealed class DiagnosticsService
                 return "高透明";
             default:
                 return "实色";
+        }
+    }
+
+    private static string GetThemeText(ThemeMode mode)
+    {
+        switch (mode)
+        {
+            case ThemeMode.Light:
+                return "浅色";
+            case ThemeMode.Graphite:
+                return "石墨";
+            default:
+                return "深色";
         }
     }
 }

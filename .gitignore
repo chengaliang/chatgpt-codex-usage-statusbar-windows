@@ -14,6 +14,7 @@ obj/
 *.log
 *.tmp
 *.bak
+*.next.exe
 *.user
 .vs/
 

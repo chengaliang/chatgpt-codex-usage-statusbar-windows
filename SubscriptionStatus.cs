@@ -46,6 +46,8 @@ internal sealed class QuotaSnapshot
     public string StatusText { get; private set; }
     public string ErrorText { get; private set; }
     public DateTimeOffset? QueriedAt { get; private set; }
+    public DateTimeOffset? LastLiveAt { get; private set; }
+    public bool IsStale { get; private set; }
     public IList<QuotaWindow> Windows { get; private set; }
 
     private QuotaSnapshot()
@@ -55,6 +57,7 @@ internal sealed class QuotaSnapshot
         StatusText = "读取中";
         ErrorText = string.Empty;
         Windows = new List<QuotaWindow>();
+        IsStale = false;
     }
 
     public static QuotaSnapshot Loading()
@@ -70,7 +73,23 @@ internal sealed class QuotaSnapshot
         result.AccountLabel = string.IsNullOrWhiteSpace(accountLabel) ? "当前账户" : accountLabel;
         result.StatusText = "正常";
         result.QueriedAt = DateTimeOffset.Now;
+        result.LastLiveAt = result.QueriedAt;
         result.Windows = windows;
+        return result;
+    }
+
+    public static QuotaSnapshot CachedResult(
+        string planName,
+        IList<QuotaWindow> windows,
+        DateTimeOffset? lastLiveAt,
+        string statusText,
+        string errorText)
+    {
+        QuotaSnapshot result = SuccessResult(planName, "当前账户", windows);
+        result.IsStale = true;
+        result.LastLiveAt = lastLiveAt;
+        result.StatusText = string.IsNullOrWhiteSpace(statusText) ? "缓存" : statusText;
+        result.ErrorText = errorText ?? string.Empty;
         return result;
     }
 
@@ -98,13 +117,32 @@ internal static class DiagnosticSanitizer
         }
 
         string normalized = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        if (string.Equals(normalized, "GPT Plus", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(normalized, "Plus", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalized, "Plus", StringComparison.OrdinalIgnoreCase))
         {
             return "GPT Plus";
         }
 
-        // 其他计划不做猜测，统一使用通用名称；额度窗口仍按官方返回值展示。
+        string[] supportedPlans =
+        {
+            "ChatGPT",
+            "GPT Free",
+            "GPT Go",
+            "GPT Plus",
+            "GPT Pro",
+            "GPT Team",
+            "GPT Business",
+            "GPT Enterprise",
+            "GPT Edu"
+        };
+        foreach (string supportedPlan in supportedPlans)
+        {
+            if (string.Equals(normalized, supportedPlan, StringComparison.OrdinalIgnoreCase))
+            {
+                return supportedPlan;
+            }
+        }
+
+        // 对未认识的远端计划保持通用名称，避免把接口任意文本直接写到 UI 或诊断报告。
         return "ChatGPT";
     }
 }
@@ -541,7 +579,7 @@ internal sealed class StatusWindow : Form
     private const string ProjectUrl = "https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows";
     private readonly Rectangle closeArea = new Rectangle(WindowWidth - 24, 11, 18, 18);
     private readonly Rectangle refreshArea = new Rectangle(WindowWidth - 47, 11, 18, 18);
-    private readonly OfficialQuotaService quotaService;
+    private readonly IUsageProvider usageProvider;
     private readonly SettingsStore settingsStore;
     private readonly AppSettings settings;
     private readonly RefreshScheduler refreshScheduler;
@@ -552,10 +590,15 @@ internal sealed class StatusWindow : Form
     private readonly TrayController trayController;
     private readonly NotificationEvaluator notificationEvaluator;
     private readonly DiagnosticsService diagnosticsService;
+    private readonly UsageCache usageCache;
+    private readonly HistoryStore historyStore;
+    private readonly UpdateService updateService;
+    private ThemePalette themePalette;
     private ToolStripMenuItem autoStartMenuItem;
     private readonly IList<ToolStripMenuItem> refreshIntervalItems = new List<ToolStripMenuItem>();
     private readonly IList<ToolStripMenuItem> backgroundStyleItems = new List<ToolStripMenuItem>();
     private QuotaSnapshot snapshot;
+    private UsageSnapshot usageSnapshot;
     private bool isRefreshing;
     private bool userMoved;
     private bool autoStartEnabled;
@@ -596,11 +639,23 @@ internal sealed class StatusWindow : Form
             Region = new Region(regionPath);
         }
 
-        quotaService = new OfficialQuotaService();
+        usageProvider = new OfficialUsageProvider();
         settingsStore = new SettingsStore();
         settings = settingsStore.Load();
         cancellation = new CancellationTokenSource();
-        snapshot = QuotaSnapshot.Loading();
+        usageCache = new UsageCache();
+        historyStore = new HistoryStore();
+        updateService = new UpdateService();
+        usageSnapshot = usageCache.Load();
+        if (usageSnapshot == null)
+        {
+            usageSnapshot = UsageSnapshot.Loading("chatgpt-codex");
+            snapshot = QuotaSnapshot.Loading();
+        }
+        else
+        {
+            snapshot = usageSnapshot.ToQuotaSnapshot();
+        }
         notificationEvaluator = new NotificationEvaluator();
         diagnosticsService = new DiagnosticsService();
         startupManager = new StartupManager(Application.ExecutablePath);
@@ -617,6 +672,8 @@ internal sealed class StatusWindow : Form
             autoStartEnabled = startupEnabled;
         }
         settings.AutoStartEnabled = autoStartEnabled;
+        themePalette = ThemePalette.Create(settings.Theme);
+        ApplyTheme();
         ApplyBackgroundStyle();
         contextMenu = CreateContextMenu();
         ContextMenuStrip = contextMenu;
@@ -647,6 +704,9 @@ internal sealed class StatusWindow : Form
 
         ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
         refreshItem.Click += async delegate(object sender, EventArgs args) { await RefreshQuotaSafelyAsync(); };
+
+        ToolStripMenuItem detailsItem = new ToolStripMenuItem("查看额度详情");
+        detailsItem.Click += delegate(object sender, EventArgs args) { ShowDetails(); };
 
         ToolStripMenuItem intervalMenu = new ToolStripMenuItem("刷新周期");
         foreach (int minutes in AppSettings.GetSupportedRefreshIntervals())
@@ -702,13 +762,23 @@ internal sealed class StatusWindow : Form
         ToolStripMenuItem copyDiagnosticsItem = new ToolStripMenuItem("复制诊断信息");
         copyDiagnosticsItem.Click += delegate(object sender, EventArgs args) { CopyDiagnosticReport(); };
 
+        ToolStripMenuItem clearDataItem = new ToolStripMenuItem("清除本地缓存与历史");
+        clearDataItem.Click += delegate(object sender, EventArgs args) { ClearLocalData(); };
+
         ToolStripMenuItem projectItem = new ToolStripMenuItem("打开项目主页");
         projectItem.Click += delegate(object sender, EventArgs args) { OpenProjectPage(); };
+
+        ToolStripMenuItem updateItem = new ToolStripMenuItem("检查更新");
+        updateItem.Click += async delegate(object sender, EventArgs args)
+        {
+            await CheckForUpdatesAsync(sender as ToolStripMenuItem);
+        };
 
         ToolStripMenuItem exitItem = new ToolStripMenuItem("退出");
         exitItem.Click += delegate(object sender, EventArgs args) { ExitApplication(); };
 
         menu.Items.Add(refreshItem);
+        menu.Items.Add(detailsItem);
         menu.Items.Add(intervalMenu);
         menu.Items.Add(styleMenu);
         menu.Items.Add(autoStartMenuItem);
@@ -716,8 +786,10 @@ internal sealed class StatusWindow : Form
         menu.Items.Add(settingsItem);
         menu.Items.Add(diagnosticsItem);
         menu.Items.Add(copyDiagnosticsItem);
+        menu.Items.Add(clearDataItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(projectItem);
+        menu.Items.Add(updateItem);
         menu.Items.Add(exitItem);
         return menu;
     }
@@ -751,7 +823,7 @@ internal sealed class StatusWindow : Form
             if (!cancellation.IsCancellationRequested)
             {
                 isRefreshing = false;
-                snapshot = QuotaSnapshot.Failure("查询失败", "状态栏启动失败，请点击刷新重试");
+                ApplyQueryFailure(UsageStatus.UnknownError, "startup_failed");
                 toolTip.SetToolTip(this, BuildTooltipText());
                 trayController.SetStatus(BuildTrayStatus());
                 Invalidate();
@@ -772,16 +844,9 @@ internal sealed class StatusWindow : Form
             return;
         }
 
-        NativeRect workArea;
-        if (!SystemParametersInfo(SpiGetWorkArea, 0, out workArea, 0))
-        {
-            Rectangle fallback = Screen.PrimaryScreen.WorkingArea;
-            Location = new Point(
-                Math.Max(fallback.Left + 4, fallback.Right - Width - 16),
-                Math.Max(fallback.Top + 4, fallback.Bottom - Height - 16));
-            return;
-        }
-
+        // 以鼠标所在显示器为默认目标，避免多屏用户每次启动都跳回主屏；保存的位置优先级更高。
+        Screen targetScreen = Screen.FromPoint(Cursor.Position);
+        Rectangle workArea = targetScreen == null ? Screen.PrimaryScreen.WorkingArea : targetScreen.WorkingArea;
         int left = Math.Max(workArea.Left + 4, workArea.Right - Width - 16);
         int top = Math.Max(workArea.Top + 4, workArea.Bottom - Height - 16);
         SetWindowPos(Handle, IntPtr.Zero, left, top, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
@@ -805,7 +870,8 @@ internal sealed class StatusWindow : Form
         refreshScheduler.Stop();
         refreshScheduler.Dispose();
         cancellation.Cancel();
-        quotaService.Dispose();
+        usageProvider.Dispose();
+        updateService.Dispose();
         cancellation.Dispose();
         toolTip.Dispose();
         contextMenu.Dispose();
@@ -872,11 +938,37 @@ internal sealed class StatusWindow : Form
         await RefreshQuotaSafelyAsync();
     }
 
+    /// <summary>
+    /// 打开脱离主状态栏的详情视图。详情窗口只拿到脱敏快照和本地历史，刷新仍复用主窗口的 Provider 链路。
+    /// </summary>
+    private void ShowDetails()
+    {
+        using (UsageDetailsForm form = new UsageDetailsForm(
+            usageSnapshot,
+            historyStore.Load(),
+            RefreshForDetailsAsync,
+            delegate { return historyStore.Load(); },
+            settings.Theme))
+        {
+            form.ShowDialog(this);
+        }
+    }
+
+    private async Task<UsageSnapshot> RefreshForDetailsAsync()
+    {
+        await RefreshQuotaSafelyAsync();
+        return usageSnapshot == null ? UsageSnapshot.Loading("chatgpt-codex") : usageSnapshot.Clone();
+    }
+
     private string BuildTrayStatus()
     {
         if (snapshot == null || !snapshot.Success)
         {
             return "ChatGPT/Codex 额度状态栏 · 等待刷新";
+        }
+        if (snapshot.IsStale)
+        {
+            return "ChatGPT/Codex 额度状态栏 · 使用缓存";
         }
         return "ChatGPT/Codex 额度状态栏 · " + (isRefreshing ? "刷新中" : "状态正常");
     }
@@ -906,6 +998,7 @@ internal sealed class StatusWindow : Form
             UpdateRefreshIntervalChecks();
             UpdateBackgroundStyleChecks();
             ApplyBackgroundStyle();
+            ApplyTheme();
             SaveSettings();
             toolTip.SetToolTip(this, BuildTooltipText());
             trayController.SetStatus(BuildTrayStatus());
@@ -918,6 +1011,7 @@ internal sealed class StatusWindow : Form
         settings.RefreshIntervalMinutes = source.RefreshIntervalMinutes;
         settings.AutoStartEnabled = source.AutoStartEnabled;
         settings.BackgroundStyle = source.BackgroundStyle;
+        settings.Theme = source.Theme;
         settings.NotificationsEnabled = source.NotificationsEnabled;
         settings.NotificationThresholdPercent = source.NotificationThresholdPercent;
         settings.RestorePosition = source.RestorePosition;
@@ -984,6 +1078,13 @@ internal sealed class StatusWindow : Form
         }
     }
 
+    private void ApplyTheme()
+    {
+        themePalette = ThemePalette.Create(settings.Theme);
+        BackColor = themePalette.BackgroundTop;
+        Invalidate();
+    }
+
     private void UpdateRefreshIntervalChecks()
     {
         foreach (ToolStripMenuItem item in refreshIntervalItems)
@@ -1020,18 +1121,17 @@ internal sealed class StatusWindow : Form
         Invalidate();
         try
         {
-            QuotaSnapshot result = await quotaService.QueryAsync(cancellation.Token);
+            UsageSnapshot result = await usageProvider.GetUsageAsync(cancellation.Token);
             if (!cancellation.IsCancellationRequested)
             {
-                snapshot = result;
-                EvaluateNotifications(result);
+                ApplyUsageResult(result);
             }
         }
         catch (Exception)
         {
             if (!cancellation.IsCancellationRequested)
             {
-                snapshot = QuotaSnapshot.Failure("查询失败", "状态栏未能完成刷新");
+                ApplyQueryFailure(UsageStatus.UnknownError, "refresh_failed");
             }
         }
         finally
@@ -1062,12 +1162,63 @@ internal sealed class StatusWindow : Form
             if (!cancellation.IsCancellationRequested)
             {
                 isRefreshing = false;
-                snapshot = QuotaSnapshot.Failure("查询失败", "状态栏未能完成刷新");
+                ApplyQueryFailure(UsageStatus.UnknownError, "refresh_failed");
                 toolTip.SetToolTip(this, BuildTooltipText());
                 trayController.SetStatus(BuildTrayStatus());
                 Invalidate();
             }
         }
+    }
+
+    /// <summary>
+    /// 统一处理 Provider 结果。只有在线成功结果会更新缓存和历史；失败时保留最近成功窗口，
+    /// 同时把本次失败状态写入内存模型，便于状态栏、工具提示和诊断中心同时表达真实情况。
+    /// </summary>
+    private void ApplyUsageResult(UsageSnapshot result)
+    {
+        if (result == null)
+        {
+            ApplyQueryFailure(UsageStatus.UnknownError, "empty_result");
+            return;
+        }
+
+        if (result.Status == UsageStatus.Live)
+        {
+            usageSnapshot = result;
+            snapshot = result.ToQuotaSnapshot();
+            string cacheError;
+            usageCache.TrySave(result, out cacheError);
+            historyStore.Append(result);
+            EvaluateNotifications(snapshot);
+            return;
+        }
+
+        if (result.Status == UsageStatus.Cached)
+        {
+            usageSnapshot = result;
+            snapshot = result.ToQuotaSnapshot();
+            return;
+        }
+
+        ApplyQueryFailure(result.Status, result.ErrorCode);
+    }
+
+    /// <summary>
+    /// 把本次查询失败合并到最近成功快照。没有任何可用窗口时才显示纯错误状态，
+    /// 避免网络短暂中断导致用户失去上一条仍然有效的额度信息。
+    /// </summary>
+    private void ApplyQueryFailure(UsageStatus status, string errorCode)
+    {
+        DateTimeOffset queriedAt = DateTimeOffset.Now;
+        if (usageSnapshot != null && usageSnapshot.Windows != null && usageSnapshot.Windows.Count > 0)
+        {
+            usageSnapshot = usageSnapshot.WithFailure(status, errorCode, queriedAt);
+            snapshot = usageSnapshot.ToQuotaSnapshot();
+            return;
+        }
+
+        usageSnapshot = UsageSnapshot.Failure("chatgpt-codex", status, errorCode, queriedAt);
+        snapshot = usageSnapshot.ToQuotaSnapshot();
     }
 
     private void EvaluateNotifications(QuotaSnapshot result)
@@ -1093,8 +1244,8 @@ internal sealed class StatusWindow : Form
     {
         return diagnosticsService.Build(
             snapshot,
-            quotaService.GetCredentialDiagnostic(),
-            quotaService.GetProxyDiagnostic(),
+            usageProvider.GetCredentialDiagnostic(),
+            usageProvider.GetNetworkDiagnostic(),
             autoStartEnabled,
             !string.IsNullOrWhiteSpace(autoStartError),
             settings);
@@ -1127,6 +1278,28 @@ internal sealed class StatusWindow : Form
         }
     }
 
+    private void ClearLocalData()
+    {
+        DialogResult choice = MessageBox.Show(
+            this,
+            "将删除本项目保存的额度缓存和趋势历史，不会影响 Codex 登录。是否继续？",
+            "清除本地数据",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (choice != DialogResult.Yes)
+        {
+            return;
+        }
+
+        usageCache.Clear();
+        historyStore.Clear();
+        usageSnapshot = UsageSnapshot.Loading("chatgpt-codex");
+        snapshot = QuotaSnapshot.Loading();
+        toolTip.SetToolTip(this, BuildTooltipText());
+        trayController.SetStatus(BuildTrayStatus());
+        Invalidate();
+    }
+
     private void OpenProjectPage()
     {
         try
@@ -1139,6 +1312,66 @@ internal sealed class StatusWindow : Form
         }
     }
 
+    /// <summary>
+    /// 查询公开 Release 并让用户决定是否打开下载页。应用不会在后台替换正在运行的可执行文件。
+    /// </summary>
+    private async Task CheckForUpdatesAsync(ToolStripMenuItem menuItem)
+    {
+        if (menuItem != null)
+        {
+            menuItem.Enabled = false;
+            menuItem.Text = "检查更新中…";
+        }
+
+        try
+        {
+            UpdateCheckResult result = await updateService.CheckLatestAsync(cancellation.Token);
+            if (cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+            if (!result.IsSuccess)
+            {
+                MessageBox.Show(this, "暂时无法检查更新（" + result.ErrorCode + "）。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!result.IsUpdateAvailable)
+            {
+                MessageBox.Show(this, "当前已是最新版本 v" + UpdateService.CurrentVersion + "。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string message = "发现新版本 v" + result.LatestVersion + "。\r\n";
+            if (!string.IsNullOrWhiteSpace(result.AssetName))
+            {
+                message += "可下载资产：" + result.AssetName + "\r\n";
+            }
+            if (!string.IsNullOrWhiteSpace(result.Sha256))
+            {
+                message += "SHA-256：" + result.Sha256 + "\r\n";
+                message += "下载后可运行：Get-FileHash .\\SubscriptionStatus.exe -Algorithm SHA256\r\n";
+            }
+            message += "是否打开 GitHub Release 页面？";
+            DialogResult choice = MessageBox.Show(this, message, "发现更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (choice == DialogResult.Yes && !string.IsNullOrWhiteSpace(result.ReleaseUrl))
+            {
+                Process.Start(new ProcessStartInfo(result.ReleaseUrl) { UseShellExecute = true });
+            }
+        }
+        catch (Exception)
+        {
+            MessageBox.Show(this, "检查更新失败，请稍后重试。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        finally
+        {
+            if (menuItem != null && !IsDisposed)
+            {
+                menuItem.Enabled = true;
+                menuItem.Text = "检查更新";
+            }
+        }
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
@@ -1148,14 +1381,14 @@ internal sealed class StatusWindow : Form
 
         using (LinearGradientBrush background = new LinearGradientBrush(
             ClientRectangle,
-            Color.FromArgb(31, 38, 49),
-            Color.FromArgb(14, 18, 25),
+            themePalette.BackgroundTop,
+            themePalette.BackgroundBottom,
             8f))
         {
             g.FillRectangle(background, ClientRectangle);
         }
 
-        using (Pen border = new Pen(Color.FromArgb(54, 64, 78), 1f))
+        using (Pen border = new Pen(themePalette.Border, 1f))
         using (GraphicsPath borderPath = RoundedRectangle(new Rectangle(0, 0, WindowWidth - 1, WindowHeight - 1), 9))
         {
             g.DrawPath(border, borderPath);
@@ -1163,9 +1396,11 @@ internal sealed class StatusWindow : Form
 
         DrawBrand(g);
         DrawDivider(g, 58);
-        DrawWindow(g, new Rectangle(68, 0, 58, WindowHeight), FindWindow(18000), "5h", Color.FromArgb(165, 255, 117));
+        QuotaWindow primaryWindow = FindDisplayWindow(18000, 0);
+        QuotaWindow secondaryWindow = FindDisplayWindow(604800, 1, primaryWindow);
+        DrawWindow(g, new Rectangle(68, 0, 58, WindowHeight), primaryWindow, CompactWindowName(primaryWindow, "1"), themePalette.PrimaryAccent);
         DrawDivider(g, 126);
-        DrawWindow(g, new Rectangle(136, 0, 58, WindowHeight), FindWindow(604800), "7d", Color.FromArgb(111, 196, 255));
+        DrawWindow(g, new Rectangle(136, 0, 58, WindowHeight), secondaryWindow, CompactWindowName(secondaryWindow, "2"), themePalette.SecondaryAccent);
         DrawDivider(g, 194);
         DrawStatus(g);
         DrawActionButtons(g);
@@ -1173,13 +1408,13 @@ internal sealed class StatusWindow : Form
 
     private void DrawBrand(Graphics g)
     {
-        Color statusColor = snapshot.Success ? Color.FromArgb(165, 255, 117) : Color.FromArgb(255, 190, 96);
+        Color statusColor = snapshot.Success && !snapshot.IsStale ? themePalette.Success : themePalette.Warning;
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
             g.FillEllipse(dot, 8, 16, 7, 7);
         }
 
-        DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 8.2f, FontStyle.Bold, Color.FromArgb(244, 246, 248), 20, 9);
+        DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 8.2f, FontStyle.Bold, themePalette.PrimaryText, 20, 9);
     }
 
     private string CompactPlanName()
@@ -1200,11 +1435,11 @@ internal sealed class StatusWindow : Form
         int fillWidth = (int)Math.Round(trackWidth * usedPercent / 100d);
         fillWidth = Math.Max(0, Math.Min(trackWidth, fillWidth));
 
-        DrawText(g, compactName, "Consolas", 7f, FontStyle.Bold, Color.FromArgb(183, 193, 207), bounds.Left, 11);
-        DrawTextRight(g, percentage, "Consolas", 8.5f, FontStyle.Bold, Color.FromArgb(247, 248, 250), bounds.Right - 2, 9);
+        DrawText(g, compactName, "Consolas", 7f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 11);
+        DrawTextRight(g, percentage, "Consolas", 8.5f, FontStyle.Bold, themePalette.PrimaryText, bounds.Right - 2, 9);
 
         Rectangle track = new Rectangle(bounds.Left, 27, trackWidth, 2);
-        using (SolidBrush trackBrush = new SolidBrush(Color.FromArgb(49, 57, 70)))
+        using (SolidBrush trackBrush = new SolidBrush(themePalette.Track))
         using (GraphicsPath trackPath = RoundedRectangle(track, 2))
         {
             g.FillPath(trackBrush, trackPath);
@@ -1221,18 +1456,20 @@ internal sealed class StatusWindow : Form
 
         // 底部直接显示日期和下一次重置时间；扩大额度列宽度后避免日期与分隔线重叠。
         string reset = window == null ? "--" : FormatVisibleReset(window.ResetAt);
-        DrawText(g, reset, "Consolas", 6.5f, FontStyle.Bold, Color.FromArgb(190, 202, 219), bounds.Left, 28);
+        DrawText(g, reset, "Consolas", 6.5f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 28);
     }
 
     private void DrawStatus(Graphics g)
     {
-        Color statusColor = snapshot.Success ? Color.FromArgb(165, 255, 117) : Color.FromArgb(255, 190, 96);
+        Color statusColor = snapshot.Success && !snapshot.IsStale ? themePalette.Success : themePalette.Warning;
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
             g.FillEllipse(dot, 203, 16, 5, 5);
         }
 
-        string status = isRefreshing ? "..." : (snapshot.Success ? "OK" : "ERR");
+        string status = isRefreshing
+            ? "..."
+            : (snapshot.IsStale ? "CACHE" : (snapshot.Success ? "OK" : "ERR"));
         DrawText(g, status, "Consolas", 7.5f, FontStyle.Bold, statusColor, 212, 11);
     }
 
@@ -1243,7 +1480,7 @@ internal sealed class StatusWindow : Form
         DrawButtonSurface(g, refreshArea, refreshHover);
         DrawButtonSurface(g, closeArea, closeHover);
 
-        using (Pen refreshPen = new Pen(Color.FromArgb(171, 182, 196), 1.4f))
+        using (Pen refreshPen = new Pen(themePalette.ButtonIcon, 1.4f))
         {
             refreshPen.StartCap = LineCap.Round;
             refreshPen.EndCap = LineCap.Round;
@@ -1257,7 +1494,7 @@ internal sealed class StatusWindow : Form
             g.DrawLines(refreshPen, arrow);
         }
 
-        using (Pen closePen = new Pen(Color.FromArgb(171, 182, 196), 1.5f))
+        using (Pen closePen = new Pen(themePalette.ButtonIcon, 1.5f))
         {
             closePen.StartCap = LineCap.Round;
             closePen.EndCap = LineCap.Round;
@@ -1266,25 +1503,66 @@ internal sealed class StatusWindow : Form
         }
     }
 
-    private static void DrawButtonSurface(Graphics g, Rectangle area, bool hover)
+    private void DrawButtonSurface(Graphics g, Rectangle area, bool hover)
     {
-        using (SolidBrush brush = new SolidBrush(hover ? Color.FromArgb(52, 62, 75) : Color.Transparent))
+        using (SolidBrush brush = new SolidBrush(hover ? themePalette.ButtonHover : Color.Transparent))
         using (GraphicsPath path = RoundedRectangle(area, 7))
         {
             g.FillPath(brush, path);
         }
     }
 
-    private QuotaWindow FindWindow(int seconds)
+    private QuotaWindow FindDisplayWindow(int seconds, int fallbackIndex, QuotaWindow excluded = null)
     {
+        if (snapshot == null || snapshot.Windows == null)
+        {
+            return null;
+        }
         foreach (QuotaWindow window in snapshot.Windows)
         {
-            if (window.LimitWindowSeconds == seconds)
+            if (window != null && window.LimitWindowSeconds == seconds && !object.ReferenceEquals(window, excluded))
             {
                 return window;
             }
         }
+        if (fallbackIndex >= 0 && fallbackIndex < snapshot.Windows.Count)
+        {
+            QuotaWindow fallback = snapshot.Windows[fallbackIndex];
+            if (fallback != null && !object.ReferenceEquals(fallback, excluded))
+            {
+                return fallback;
+            }
+        }
         return null;
+    }
+
+    private static string CompactWindowName(QuotaWindow window, string fallback)
+    {
+        if (window == null)
+        {
+            return fallback;
+        }
+        if (window.LimitWindowSeconds == 18000)
+        {
+            return "5h";
+        }
+        if (window.LimitWindowSeconds == 604800)
+        {
+            return "7d";
+        }
+        if (window.LimitWindowSeconds >= 86400)
+        {
+            return (window.LimitWindowSeconds / 86400).ToString(CultureInfo.InvariantCulture) + "d";
+        }
+        if (window.LimitWindowSeconds >= 3600)
+        {
+            return (window.LimitWindowSeconds / 3600).ToString(CultureInfo.InvariantCulture) + "h";
+        }
+        if (window.LimitWindowSeconds >= 60)
+        {
+            return (window.LimitWindowSeconds / 60).ToString(CultureInfo.InvariantCulture) + "m";
+        }
+        return "win";
     }
 
     private string BuildTooltipText()
@@ -1294,11 +1572,15 @@ internal sealed class StatusWindow : Form
         {
             text += "\r\n" + window.Name + ": " + window.UsedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%，重置 " + FormatCompactReset(window.ResetAt);
         }
-        if (!snapshot.Success && !string.IsNullOrWhiteSpace(snapshot.ErrorText))
+        if (snapshot.IsStale && snapshot.LastLiveAt.HasValue)
+        {
+            text += "\r\n缓存时间 " + snapshot.LastLiveAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        }
+        if ((!snapshot.Success || snapshot.IsStale) && !string.IsNullOrWhiteSpace(snapshot.ErrorText))
         {
             text += "\r\n" + snapshot.ErrorText;
         }
-        text += "\r\n右键：刷新周期、背景样式、开机自启和诊断";
+        text += "\r\n双击查看详情；右键：刷新周期、背景样式、开机自启和诊断";
         return text;
     }
 
@@ -1335,9 +1617,9 @@ internal sealed class StatusWindow : Form
         return resetAt.Value.ToLocalTime().ToString("MM/dd HH:mm", CultureInfo.InvariantCulture);
     }
 
-    private static void DrawDivider(Graphics g, int x)
+    private void DrawDivider(Graphics g, int x)
     {
-        using (Pen divider = new Pen(Color.FromArgb(45, 53, 65)))
+        using (Pen divider = new Pen(themePalette.Divider))
         {
             g.DrawLine(divider, x, 7, x, WindowHeight - 7);
         }
@@ -1403,6 +1685,15 @@ internal sealed class StatusWindow : Form
         }
     }
 
+    protected override void OnMouseDoubleClick(MouseEventArgs e)
+    {
+        base.OnMouseDoubleClick(e);
+        if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) && !refreshArea.Contains(e.Location))
+        {
+            ShowDetails();
+        }
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
@@ -1441,6 +1732,7 @@ internal static class Program
                 return;
             }
 
+            DpiSupport.Enable();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new StatusWindow());
