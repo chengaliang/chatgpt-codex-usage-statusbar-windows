@@ -972,6 +972,9 @@ internal sealed class StatusWindow : Form
         Hide();
         visualTimer.Stop();
         visualAnimationActive = false;
+        // 收起到托盘意味着用户暂时不在看状态栏，丢弃未展示完的庆典，避免下次显示时播放过期反馈。
+        refreshCelebrationActive = false;
+        refreshCelebrationProgress = 0f;
         trayController.SetStatus(BuildTrayStatus());
     }
 
