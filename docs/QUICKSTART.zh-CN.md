@@ -121,7 +121,7 @@ $env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p2-launcher.ps1
 ```
 
-它覆盖设置文件、启动项迁移、阈值通知、诊断脱敏、缓存/历史隐私、Usage Hub/详情/设置 DPI 标志、自绘面板入口、启动聚焦、图标资源和 SHA-256 校验；P0/P1 不访问官方额度接口，测试不会上传本机凭据。
+它覆盖设置文件、启动项迁移、阈值通知、诊断脱敏、缓存/历史隐私、Usage Hub/详情/设置 DPI 标志、自绘面板入口、启动聚焦、图标资源和 SHA-256 校验；P0/P1 不访问官方额度接口，P2 会隔离到临时空 `CODEX_HOME` 和应用数据目录，测试不会读取或上传本机凭据。
 
 ## 常见问题
 

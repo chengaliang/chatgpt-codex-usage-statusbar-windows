@@ -33,4 +33,6 @@ $env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p2-launcher.ps1
 ```
 
-脚本会临时修改当前用户的启动项并在结束时恢复原值，不会读取或上传 OAuth 凭据。
+脚本会临时修改当前用户的启动项并在结束时恢复原值；P2 启动时使用临时空 `CODEX_HOME`、应用数据根目录和不可达代理，确保不会读取本机 OAuth 凭据、缓存/历史或向官方接口发送请求。
+
+在 GitHub Actions 等无桌面会话中，P2 会跳过最小化/恢复窗口断言，但仍验证进程存活、重复启动不产生副本、根目录兼容启动器和嵌入式图标；本机交互桌面会执行完整窗口断言。

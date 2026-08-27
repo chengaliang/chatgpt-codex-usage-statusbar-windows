@@ -2380,8 +2380,13 @@ internal static class Program
     private const int ExistingWindowWaitMilliseconds = 2000;
     private const int ExistingWindowPollMilliseconds = 50;
 
+    private delegate bool EnumWindowsCallback(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr lParam);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr FindWindow(string className, string windowName);
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool ShowWindow(IntPtr hWnd, int command);
@@ -2432,7 +2437,7 @@ internal static class Program
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(ExistingWindowWaitMilliseconds);
             while (DateTime.UtcNow < deadline)
             {
-                IntPtr handle = FindWindow(null, "ChatGPT quota");
+                IntPtr handle = FindStatusWindow();
                 if (handle != IntPtr.Zero)
                 {
                     ShowWindow(handle, SwRestore);
@@ -2448,6 +2453,30 @@ internal static class Program
         {
             // 聚焦只是增强反馈，失败时不能影响已经运行的主实例。
         }
+    }
+
+    /// <summary>
+    /// 通过枚举当前桌面的顶层窗口查找状态栏，规避部分 Windows 桌面环境下
+    /// FindWindow 对无边框 WinForms 窗口标题匹配不稳定的问题。
+    /// </summary>
+    private static IntPtr FindStatusWindow()
+    {
+        IntPtr matchedHandle = IntPtr.Zero;
+        EnumWindowsCallback callback = delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            StringBuilder title = new StringBuilder(128);
+            GetWindowText(hWnd, title, title.Capacity);
+            if (string.Equals(title.ToString(), "ChatGPT quota", StringComparison.Ordinal))
+            {
+                matchedHandle = hWnd;
+                return false;
+            }
+
+            return true;
+        };
+
+        EnumWindows(callback, IntPtr.Zero);
+        return matchedHandle;
     }
 
     /// <summary>
