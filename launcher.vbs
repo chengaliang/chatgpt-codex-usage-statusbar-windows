@@ -1,6 +1,6 @@
 Option Explicit
 
-' Launch the dynamic GPT Plus quota status bar executable.
+' Launch the dynamic ChatGPT/Codex quota status bar executable.
 Dim shell, baseFolder, executablePath
 baseFolder = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
 executablePath = baseFolder & "SubscriptionStatus.exe"

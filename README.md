@@ -1,17 +1,18 @@
-# ChatGPT Plus / Codex Usage Status Bar for Windows
+# ChatGPT / Codex Usage Status Bar for Windows
 
-[![Build Windows status bar](https://github.com/chengaliang/chatgpt-plus-codex-usage-statusbar-windows/actions/workflows/build.yml/badge.svg)](https://github.com/chengaliang/chatgpt-plus-codex-usage-statusbar-windows/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Build Windows status bar](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/actions/workflows/build.yml/badge.svg)](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT Plus / Codex CLI** 的官方动态额度。
-它从本机已有的 Codex CLI ChatGPT OAuth 登录状态读取凭据，通过 Windows 系统网络连接访问 ChatGPT/Codex 后端，也支持按需配置 Clash Verge 等本地代理，显示 5 小时和 7 天窗口的用量、进度和下一次重置时间。
+一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。
+它从本机已有的 Codex CLI ChatGPT OAuth 登录状态读取凭据，通过 Windows 系统网络连接访问 ChatGPT/Codex 后端，也支持按需配置本地代理，显示 5 小时和 7 天窗口的用量、进度和下一次重置时间。程序不会把额度功能限制为某一个订阅计划。
 
-> Unofficial Windows desktop status bar for ChatGPT Plus and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the UI at about 320×40 pixels.
+> Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the UI at about 320×40 pixels.
 
 ## Features
 
 - **Mini overlay**: approximately 320×40 pixels, pinned to the lower-right work area.
 - **Official dynamic windows**: 5-hour and 7-day `used_percent` values with progress bars.
 - **Next reset time**: each window shows the local `MM/dd HH:mm`; hover for account suffix and error details.
+- **Plan-aware label**: shows the OAuth plan when available and uses a generic ChatGPT label when it is not; quota rendering is plan-agnostic.
 - **Local OAuth only**: reads `%USERPROFILE%\.codex\auth.json` or `%CODEX_HOME%\auth.json`; never writes credentials back.
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
@@ -31,7 +32,7 @@ The app expects ChatGPT OAuth mode and an `auth.json` under the Codex home direc
 
 ## Download
 
-For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.1.2](https://github.com/chengaliang/chatgpt-plus-codex-usage-statusbar-windows/releases/download/v0.1.2/SubscriptionStatus.exe).
+For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.1.2](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/download/v0.1.2/SubscriptionStatus.exe).
 The executable is also included in the repository for source review and offline use.
 
 ### 2. Launch the mini bar
@@ -99,6 +100,6 @@ Run [`start-statusbar.cmd`](start-statusbar.cmd) again. The app positions itself
 
 ## Search Keywords
 
-`chatgpt-plus` · `chatgpt usage limits` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `oauth` · `clash-verge` · `usage monitor`
+`chatgpt usage limits` · `chatgpt quota` · `chatgpt plus quota` · `chatgpt pro quota` · `chatgpt team quota` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `oauth` · `clash-verge` · `usage monitor`
 
 If this saves you time, a ⭐ on GitHub helps other users find the project.

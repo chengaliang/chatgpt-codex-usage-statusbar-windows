@@ -1,6 +1,6 @@
-# ChatGPT Plus / Codex 额度状态栏教程
+# ChatGPT / Codex 额度状态栏教程
 
-这是一条约 320×40 像素的 Windows 迷你状态栏，显示 ChatGPT Plus/Codex 的 5 小时和 7 天动态额度。它不提供登录页面，只复用本机 Codex CLI 已完成的 ChatGPT OAuth 登录。
+这是一条约 320×40 像素的 Windows 迷你状态栏，显示 ChatGPT/Codex 的 5 小时和 7 天动态额度。它不提供登录页面，只复用本机 Codex CLI 已完成的 ChatGPT OAuth 登录，不把额度功能限定为 Plus 计划。
 
 ## 使用前准备
 

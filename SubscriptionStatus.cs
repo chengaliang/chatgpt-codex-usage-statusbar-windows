@@ -47,7 +47,7 @@ internal sealed class QuotaSnapshot
 
     private QuotaSnapshot()
     {
-        PlanName = "GPT Plus";
+        PlanName = "ChatGPT";
         AccountLabel = "账户未识别";
         StatusText = "读取中";
         ErrorText = string.Empty;
@@ -63,7 +63,7 @@ internal sealed class QuotaSnapshot
     {
         QuotaSnapshot result = new QuotaSnapshot();
         result.Success = true;
-        result.PlanName = string.IsNullOrWhiteSpace(planName) ? "GPT Plus" : planName;
+        result.PlanName = string.IsNullOrWhiteSpace(planName) ? "ChatGPT" : planName;
         result.AccountLabel = string.IsNullOrWhiteSpace(accountLabel) ? "当前账户" : accountLabel;
         result.StatusText = "正常";
         result.QueriedAt = DateTimeOffset.Now;
@@ -366,7 +366,7 @@ internal sealed class OfficialQuotaService : IDisposable
             }
         }
 
-        return "GPT Plus";
+        return "ChatGPT";
     }
 
     private static string DecodeBase64Url(string value)
@@ -469,7 +469,7 @@ internal sealed class OfficialQuotaService : IDisposable
 }
 
 /// <summary>
-/// GPT Plus 迷你额度状态栏。常驻窗口只显示关键数字，账户和错误详情通过悬停提示查看。
+/// ChatGPT/Codex 迷你额度状态栏。常驻窗口只显示关键数字，账户和错误详情通过悬停提示查看。
 /// </summary>
 internal sealed class StatusWindow : Form
 {
@@ -504,7 +504,7 @@ internal sealed class StatusWindow : Form
 
     public StatusWindow()
     {
-        Text = "GPT Plus quota";
+        Text = "ChatGPT quota";
         ClientSize = new Size(WindowWidth, WindowHeight);
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;

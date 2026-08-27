@@ -29,5 +29,5 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-plus-codex-statusbar-windows
+          name: chatgpt-codex-statusbar-windows
           path: SubscriptionStatus.exe
