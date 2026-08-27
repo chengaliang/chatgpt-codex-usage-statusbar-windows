@@ -32,7 +32,7 @@ The app expects ChatGPT OAuth mode and an `auth.json` under the Codex home direc
 
 ## Download
 
-For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.1.2](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/download/v0.1.2/SubscriptionStatus.exe).
+For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.1.3](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/download/v0.1.3/SubscriptionStatus.exe).
 The executable is also included in the repository for source review and offline use.
 
 ### 2. Launch the mini bar
