@@ -250,7 +250,7 @@ Use `HttpClient` with a short timeout, parse only tag/name/download/checksum URL
 
 - [ ] **Step 3: Add checksum to the release workflow**
 
-After compilation run `Get-FileHash .\dist\SubscriptionStatus.exe -Algorithm SHA256`, write ASCII `SHA256SUMS.txt`, upload both as artifact and Release assets. Keep release metadata ASCII to avoid Windows path/encoding issues.
+After compilation run `Get-FileHash .\dist\SubscriptionStatus.exe -Algorithm SHA256`, write ASCII `dist\SHA256SUMS.txt`, upload both as artifact and Release assets. Keep release metadata ASCII to avoid Windows path/encoding issues.
 
 - [ ] **Step 4: Run verifier/update/privacy checks and commit**
 
@@ -302,7 +302,7 @@ Expected: compiler exit 0, smoke exit 0, no sensitive-pattern matches, process r
 
 - [ ] **Step 5: Publish and verify Release**
 
-Create a SemVer release with ASCII metadata, upload EXE and `SHA256SUMS.txt`, verify the public tree has no question-mark filenames, verify Actions success and leave the final local binary running.
+Create a SemVer release with ASCII metadata, upload EXE and `dist\SHA256SUMS.txt`, verify the public tree has no question-mark filenames, verify Actions success and leave the final local binary running.
 
 ```powershell
 git add tests/Fixtures tests/Smoke README.md docs/QUICKSTART.zh-CN.md CONTRIBUTING.md CHANGELOG.md .github/workflows/build.yml

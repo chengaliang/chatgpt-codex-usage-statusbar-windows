@@ -5,6 +5,8 @@ $sourceDirectory = Join-Path $root 'src'
 $distributionDirectory = Join-Path $root 'dist'
 $outputPath = Join-Path $distributionDirectory 'SubscriptionStatus.exe'
 $manifestPath = Join-Path $distributionDirectory 'SHA256SUMS.txt'
+$legacySourcePath = Join-Path $PSScriptRoot 'LegacyLauncher.cs'
+$legacyOutputPath = Join-Path $root 'SubscriptionStatus.exe'
 
 New-Item -ItemType Directory -Force -Path $distributionDirectory | Out-Null
 
@@ -57,6 +59,28 @@ $compilerArguments += $sources
 & $compiler @compilerArguments
 if ($LASTEXITCODE -ne 0) {
     throw "Compilation failed with exit code $LASTEXITCODE."
+}
+
+if (-not (Test-Path -LiteralPath $legacySourcePath -PathType Leaf)) {
+    throw "Compatibility launcher source is missing: $legacySourcePath"
+}
+
+$legacyArguments = @(
+    '/nologo'
+    '/target:winexe'
+    '/platform:anycpu'
+    '/optimize+'
+    '/warn:4'
+    '/warnaserror+'
+    '/reference:System.dll'
+    '/reference:System.Windows.Forms.dll'
+    '/utf8output'
+    ('/out:' + $legacyOutputPath)
+    $legacySourcePath
+)
+& $compiler @legacyArguments
+if ($LASTEXITCODE -ne 0) {
+    throw "Compatibility launcher compilation failed with exit code $LASTEXITCODE."
 }
 
 $hash = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash.ToUpperInvariant()

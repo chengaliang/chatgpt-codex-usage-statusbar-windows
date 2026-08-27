@@ -80,6 +80,7 @@ Start-Process -FilePath .\dist\SubscriptionStatus.exe -WorkingDirectory (Resolve
 - `src/`：原生 WinForms C# 源码
 - `scripts/`：构建和可选启动辅助脚本，包含 `build.ps1`
 - `dist/`：本地构建的 EXE 和 SHA-256 校验文件
+- 根目录 `SubscriptionStatus.exe`：兼容旧版本开机自启的转发 shim，日常启动请使用 `start-statusbar.cmd`
 - `docs/`：教程、设计预览和开发记录
 - `tests/Smoke/`：离线回归测试
 

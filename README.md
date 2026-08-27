@@ -67,6 +67,7 @@ Local build output is written to `dist\`; release downloads are kept separate fr
 | `src/` | Native WinForms C# source code |
 | `scripts/` | Build and optional launch helpers |
 | `dist/` | Local executable and SHA-256 manifest |
+| `SubscriptionStatus.exe` | Small root compatibility shim for older startup entries |
 | `docs/` | Chinese quickstart, design notes and preview assets |
 | `tests/Smoke/` | Offline reflection and privacy smoke tests |
 
