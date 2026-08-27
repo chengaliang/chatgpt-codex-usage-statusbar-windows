@@ -1,0 +1,24 @@
+# Local design preview and screenshots; the public repository contains only the native status bar.
+index.html
+styles.css
+script.js
+status-preview.png
+status-*.png
+
+# The Chinese launcher is kept for local compatibility but is not published.
+启动状态栏.cmd
+
+# Build and local machine output.
+bin/
+obj/
+*.log
+*.tmp
+*.bak
+*.user
+.vs/
+
+# Local credentials and environment files.
+.env
+.env.*
+auth.json
+*.token

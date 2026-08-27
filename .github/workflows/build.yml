@@ -1,0 +1,33 @@
+name: Build Windows status bar
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Compile WinForms executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
+            /out:SubscriptionStatus.exe `
+            /reference:System.dll `
+            /reference:System.Core.dll `
+            /reference:System.Drawing.dll `
+            /reference:System.Windows.Forms.dll `
+            /reference:System.Net.Http.dll `
+            /reference:System.Web.Extensions.dll `
+            .\SubscriptionStatus.cs
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-plus-codex-statusbar-windows
+          path: SubscriptionStatus.exe

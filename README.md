@@ -1,0 +1,108 @@
+# ChatGPT Plus / Codex Usage Status Bar for Windows
+
+[![Build Windows status bar](https://github.com/chengaliang/chatgpt-plus-codex-usage-statusbar-windows/actions/workflows/build.yml/badge.svg)](https://github.com/chengaliang/chatgpt-plus-codex-usage-statusbar-windows/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT Plus / Codex CLI** 的官方动态额度。
+它从本机已有的 Codex CLI ChatGPT OAuth 登录状态读取凭据，通过 Clash Verge 访问 ChatGPT/Codex 后端，显示 5 小时和 7 天窗口的用量、进度和下一次重置时间。
+
+> Unofficial Windows desktop status bar for ChatGPT Plus and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports Clash Verge proxy, and keeps the UI at about 320×40 pixels.
+
+## Features
+
+- **Mini overlay**: approximately 320×40 pixels, pinned to the lower-right work area.
+- **Official dynamic windows**: 5-hour and 7-day `used_percent` values with progress bars.
+- **Next reset time**: each window shows the local `MM/dd HH:mm`; hover for account suffix and error details.
+- **Local OAuth only**: reads `%USERPROFILE%\.codex\auth.json` or `%CODEX_HOME%\auth.json`; never writes credentials back.
+- **Clash Verge support**: defaults to `http://127.0.0.1:7897`; override with `CLASH_MIXED_PROXY`.
+- **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
+- **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
+
+## Quick Start
+
+### 1. Sign in with Codex CLI
+
+The status bar does not implement a login flow. Sign in once with the official Codex CLI in a terminal:
+
+```powershell
+codex login
+```
+
+The app expects ChatGPT OAuth mode and an `auth.json` under the Codex home directory.
+
+## Download
+
+For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.1.1](https://github.com/chengaliang/chatgpt-plus-codex-usage-statusbar-windows/releases/download/v0.1.1/SubscriptionStatus.exe).
+The executable is also included in the repository for source review and offline use.
+
+### 2. Start Clash Verge
+
+Run Clash Verge and make sure its mixed port is available. The default is `127.0.0.1:7897`.
+For another local proxy port, set the environment variable before launching:
+
+```powershell
+$env:CLASH_MIXED_PROXY = "http://127.0.0.1:7890"
+Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
+```
+
+### 3. Launch the mini bar
+
+Double-click [`start-statusbar.cmd`](start-statusbar.cmd) or [`launcher.vbs`](launcher.vbs). The current release keeps one compact bar above the taskbar.
+
+| Action | How |
+| --- | --- |
+| Move | Drag any empty part of the bar |
+| Refresh | Click the circular-arrow icon |
+| Close | Click the `×` icon |
+| Details | Hover over the bar |
+
+The bar refreshes automatically every five minutes.
+
+## Build From Source
+
+A Windows machine with .NET Framework 4.5+ can compile the WinForms source with the in-box C# compiler:
+
+```powershell
+$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
+  /out:SubscriptionStatus.exe `
+  /reference:System.dll `
+  /reference:System.Core.dll `
+  /reference:System.Drawing.dll `
+  /reference:System.Windows.Forms.dll `
+  /reference:System.Net.Http.dll `
+  /reference:System.Web.Extensions.dll `
+  .\SubscriptionStatus.cs
+```
+
+The repository also includes a GitHub Actions Windows build so source changes are compiled on every push and pull request.
+
+## Privacy and Security
+
+- **Never upload `auth.json`**. It contains OAuth credentials and is not part of this repository.
+- The access token is read into memory only and sent as a Bearer token to the fixed HTTPS ChatGPT/Codex usage endpoint.
+- No token, response body, account ID or exception stack is written to a log file or displayed in the bar.
+- The tooltip masks the account ID and only shows its last four characters.
+- This project does not ask for, store or proxy OpenAI API keys.
+- The usage endpoint is a ChatGPT/Codex backend contract used by compatible clients and may change without notice. This project is not affiliated with OpenAI.
+
+Read the step-by-step Chinese tutorial in [`docs/QUICKSTART.zh-CN.md`](docs/QUICKSTART.zh-CN.md).
+
+## Troubleshooting
+
+### `OAuth 不可用`
+
+Run `codex login` again and confirm that the CLI is using ChatGPT OAuth mode. Do not paste the contents of `auth.json` into an issue.
+
+### `网络不可用` or `请求超时`
+
+Start Clash Verge, verify the mixed port, or set `CLASH_MIXED_PROXY` to the correct local HTTP/HTTPS proxy URL.
+
+### The bar is not visible
+
+Run [`start-statusbar.cmd`](start-statusbar.cmd) again. The app positions itself inside the primary work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
+
+## Search Keywords
+
+`chatgpt-plus` · `chatgpt usage limits` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `oauth` · `clash-verge` · `usage monitor`
+
+If this saves you time, a ⭐ on GitHub helps other users find the project.
