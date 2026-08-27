@@ -89,7 +89,6 @@ internal sealed class QuotaSnapshot
 internal sealed class OfficialQuotaService : IDisposable
 {
     private const string UsageEndpoint = "https://chatgpt.com/backend-api/wham/usage";
-    private const string DefaultClashProxy = "http://127.0.0.1:7897";
     private readonly HttpClient client;
     private readonly JavaScriptSerializer serializer;
 
@@ -98,16 +97,16 @@ internal sealed class OfficialQuotaService : IDisposable
         // .NET Framework 可能默认协商到较低 TLS 版本；官方接口要求 TLS 1.2。
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
-        // Clash Verge 的混合端口通过环境变量可覆盖，默认使用本机常见端口 7897。
+        // 只有用户显式配置代理时才使用指定地址；未配置时交给 Windows 系统代理，
+        // 没有系统代理则由 HttpClientHandler 直接连接，避免强制依赖 Clash Verge。
         string proxyAddress = Environment.GetEnvironmentVariable("CLASH_MIXED_PROXY");
-        if (string.IsNullOrWhiteSpace(proxyAddress))
-        {
-            proxyAddress = DefaultClashProxy;
-        }
 
         HttpClientHandler handler = new HttpClientHandler();
         handler.UseProxy = true;
-        handler.Proxy = CreateProxy(proxyAddress);
+        if (!string.IsNullOrWhiteSpace(proxyAddress))
+        {
+            handler.Proxy = CreateProxy(proxyAddress);
+        }
         client = new HttpClient(handler);
         client.Timeout = TimeSpan.FromSeconds(30);
         serializer = new JavaScriptSerializer();
@@ -119,8 +118,8 @@ internal sealed class OfficialQuotaService : IDisposable
         if (!Uri.TryCreate(proxyAddress, UriKind.Absolute, out proxyUri) ||
             (proxyUri.Scheme != Uri.UriSchemeHttp && proxyUri.Scheme != Uri.UriSchemeHttps))
         {
-            // 环境变量配置错误时回退到已验证的 Clash 默认端口，避免程序在构造窗口时直接退出。
-            proxyUri = new Uri(DefaultClashProxy);
+            // 环境变量格式错误时回退到 Windows 系统代理，避免构造窗口时直接退出。
+            return WebRequest.DefaultWebProxy;
         }
         return new WebProxy(proxyUri);
     }
@@ -177,7 +176,7 @@ internal sealed class OfficialQuotaService : IDisposable
                 }
                 catch (HttpRequestException)
                 {
-                    return QuotaSnapshot.Failure("网络不可用", "请确认 Clash Verge 混合端口 7897 可用");
+                    return QuotaSnapshot.Failure("网络不可用", "请检查系统网络或 CLASH_MIXED_PROXY 配置");
                 }
                 catch (Exception)
                 {

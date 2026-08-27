@@ -26,22 +26,14 @@ codex login
 
 不要把这个文件上传、复制到 issue、聊天或公开仓库。
 
-### 开启 Clash Verge
-
-启动 Clash Verge，并确认本地混合端口可用。程序默认使用：
-
-```text
-http://127.0.0.1:7897
-```
-
-端口不同，可以在启动前临时设置：
+默认使用 Windows 系统代理；如果系统没有配置代理，则直接连接。只有你的网络确实需要 Clash Verge 或其他本地 HTTP/HTTPS 代理时，才在启动前设置：
 
 ```powershell
 $env:CLASH_MIXED_PROXY = "http://127.0.0.1:7890"
 Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 ```
 
-环境变量只影响当前终端窗口。也可以在 Windows 系统环境变量中设置同名变量。
+环境变量只影响当前终端窗口，也可以在 Windows 系统环境变量中设置同名变量。
 
 ## 启动状态栏
 
@@ -96,7 +88,7 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 ### 提示网络不可用或请求超时
 
-检查 Clash Verge 是否运行、混合端口是否正确，并确认 `CLASH_MIXED_PROXY` 是完整的 `http://` 或 `https://` 地址。
+程序默认使用 Windows 系统代理或直连。只有配置了 `CLASH_MIXED_PROXY` 时，才需要检查代理是否运行，并确认它是完整的 `http://` 或 `https://` 地址。
 
 ### 看不到窗口
 
