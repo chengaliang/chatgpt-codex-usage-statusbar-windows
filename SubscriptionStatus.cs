@@ -86,6 +86,30 @@ internal sealed class QuotaSnapshot
 }
 
 /// <summary>
+/// 统一处理诊断中可能来自 OAuth 声明的计划名称，避免把未验证的任意文本复制到 Issue。
+/// </summary>
+internal static class DiagnosticSanitizer
+{
+    public static string PlanName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "ChatGPT";
+        }
+
+        string normalized = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (string.Equals(normalized, "GPT Plus", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Plus", StringComparison.OrdinalIgnoreCase))
+        {
+            return "GPT Plus";
+        }
+
+        // 其他计划不做猜测，统一使用通用名称；额度窗口仍按官方返回值展示。
+        return "ChatGPT";
+    }
+}
+
+/// <summary>
 /// 使用 Codex CLI 已有的 OAuth 凭据查询官方 ChatGPT/Codex 额度。
 /// 凭据只在内存中使用，不会写回 auth.json，也不会把令牌放入日志或 UI。
 /// </summary>
@@ -275,7 +299,7 @@ internal sealed class OfficialQuotaService : IDisposable
             return "OAuth：不可用\r\n原因：" + error;
         }
 
-        return "OAuth：ChatGPT OAuth 配置可读取\r\n计划：" + SanitizeDiagnosticValue(credentials.PlanName, "ChatGPT");
+        return "OAuth：ChatGPT OAuth 配置可读取\r\n计划：" + DiagnosticSanitizer.PlanName(credentials.PlanName);
     }
 
     /// <summary>
@@ -297,21 +321,6 @@ internal sealed class OfficialQuotaService : IDisposable
         }
 
         return "网络：自定义 " + proxyUri.Scheme.ToUpperInvariant() + " 代理（地址已隐藏）";
-    }
-
-    private static string SanitizeDiagnosticValue(string value, string fallback)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return fallback;
-        }
-
-        string sanitized = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        if (sanitized.Length > 32)
-        {
-            sanitized = sanitized.Substring(0, 32);
-        }
-        return sanitized;
     }
 
     private static string GetWindowName(long seconds)
@@ -869,7 +878,7 @@ internal sealed class StatusWindow : Form
         report.AppendLine(quotaService.GetCredentialDiagnostic());
         report.AppendLine(quotaService.GetProxyDiagnostic());
         report.AppendLine("查询状态：" + snapshot.StatusText);
-        report.AppendLine("计划显示：" + snapshot.PlanName);
+        report.AppendLine("计划显示：" + DiagnosticSanitizer.PlanName(snapshot.PlanName));
         report.AppendLine("额度窗口：" + (snapshot.Windows == null ? 0 : snapshot.Windows.Count).ToString(CultureInfo.InvariantCulture));
         report.AppendLine("最近查询：" + (snapshot.QueriedAt.HasValue
             ? snapshot.QueriedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
