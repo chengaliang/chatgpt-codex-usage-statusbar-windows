@@ -82,7 +82,7 @@ Infrastructure
   SettingsStore / HistoryStore / StartupManager / UpdateChecker
 ```
 
-当前源码仍以根目录 `.cs` 文件和内部类型为主；允许分阶段拆分，不一次性更换项目文件。所有新模块保持 `internal`，由 `SubscriptionStatus.cs` 的协调器注入依赖。
+当前源码集中在 `src/` 目录，以内部类型为主；允许分阶段拆分，不一次性更换项目文件。所有新模块保持 `internal`，由 `SubscriptionStatus.cs` 的协调器注入依赖。
 
 ### 4.2 Provider 契约
 
@@ -176,19 +176,19 @@ UsageSnapshot --> UsageCache / HistoryStore / NotificationEvaluator
 - 主题/高 DPI 固定尺寸、`WS_EX_TOOLWINDOW`、托盘隐藏/恢复/退出和单实例。
 - 通知阈值、有效 `reset_at` 变化、缺失字段和重复刷新。
 - 诊断、通知、缓存、历史和更新请求敏感信息扫描为零。
-- GitHub Actions 使用根目录全部 `.cs` 编译；Release 包含 EXE、SHA-256 文件和 ASCII 元数据。
+- GitHub Actions 使用 `src/` 目录全部 `.cs` 编译；Release 包含 EXE、SHA-256 文件和 ASCII 元数据。
 
 本地门禁：
 
 ```powershell
 git diff --check
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+$sources = @(Get-ChildItem -LiteralPath .\src -File -Filter *.cs | Select-Object -ExpandProperty FullName)
 & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
-  /out:SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll `
+  /out:.\dist\SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll `
   /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
   /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll $sources
-$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+$env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
 ```
 

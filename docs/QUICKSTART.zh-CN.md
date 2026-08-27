@@ -41,7 +41,7 @@ codex login
 
 ```powershell
 $env:CLASH_MIXED_PROXY = "http://127.0.0.1:7890"
-Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
+Start-Process -FilePath .\dist\SubscriptionStatus.exe -WorkingDirectory (Resolve-Path .\dist)
 ```
 
 环境变量只影响当前终端窗口，也可以在 Windows 系统环境变量中设置同名变量。
@@ -51,7 +51,7 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 进入仓库目录后，双击：
 
 - `start-statusbar.cmd`
-- 或 `launcher.vbs`
+- 或 `scripts/launcher.vbs`
 
 状态栏会出现在启动时所在显示器的工作区右下角，任务栏上方。查询完成后会显示：
 
@@ -75,6 +75,14 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 
 点击空白区域、右侧展开按钮或右键选择“打开 Usage Hub”，可以查看所有额度窗口、剩余百分比、重置倒计时、最近成功时间和按设置保留 7/30/90 天的本地百分比趋势。大屏会按当前重置周期计算消耗速度、趋势方向和预计耗尽时间，文案明确这是本地估算。底部的刷新、设置、诊断、复制摘要、导出趋势、项目主页和回到状态栏按钮会复用主窗口的安全边界；右键菜单可分别选择“清除趋势历史与导出”或“清除最近成功缓存”，不会删除 Codex 登录。
 
+## 目录结构
+
+- `src/`：原生 WinForms C# 源码
+- `scripts/`：构建和可选启动辅助脚本，包含 `build.ps1`
+- `dist/`：本地构建的 EXE 和 SHA-256 校验文件
+- `docs/`：教程、设计预览和开发记录
+- `tests/Smoke/`：离线回归测试
+
 ## 操作方式
 
 | 操作 | 方法 |
@@ -95,18 +103,7 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 Windows 自带 .NET Framework C# 编译器，可以直接编译：
 
 ```powershell
-$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
-if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
-& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
-  /out:SubscriptionStatus.exe `
-  /reference:System.dll `
-  /reference:System.Core.dll `
-  /reference:System.Drawing.dll `
-  /reference:System.Windows.Forms.dll `
-  /reference:System.Net.Http.dll `
-  /reference:System.Web.Extensions.dll `
-  $sources
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
 编译完成后双击 `start-statusbar.cmd` 即可启动。仓库中的 GitHub Actions 也会在 Windows runner 上执行同一套编译检查。
@@ -116,7 +113,7 @@ if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:SystemRoot 'Micr
 修改源码后可以运行仓库自带的 P0/P1 smoke：
 
 ```powershell
-$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+$env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
 ```

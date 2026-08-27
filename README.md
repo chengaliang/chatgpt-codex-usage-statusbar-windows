@@ -58,16 +58,26 @@ The app expects ChatGPT OAuth mode and an `auth.json` under the Codex home direc
 ## Download
 
 For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from the latest release](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/latest).
-The executable is also included in the repository for source review and offline use.
+Local build output is written to `dist\`; release downloads are kept separate from the source tree.
+
+## Repository Layout
+
+| Path | Purpose |
+| --- | --- |
+| `src/` | Native WinForms C# source code |
+| `scripts/` | Build and optional launch helpers |
+| `dist/` | Local executable and SHA-256 manifest |
+| `docs/` | Chinese quickstart, design notes and preview assets |
+| `tests/Smoke/` | Offline reflection and privacy smoke tests |
 
 ### 2. Launch the mini bar
 
-Double-click [`start-statusbar.cmd`](start-statusbar.cmd) or [`launcher.vbs`](launcher.vbs). The first launch enables startup for the current Windows user; the app keeps one compact bar above the taskbar and follows the monitor where it starts.
+Double-click [`start-statusbar.cmd`](start-statusbar.cmd), or run [`scripts/launcher.vbs`](scripts/launcher.vbs). The first launch enables startup for the current Windows user; the app keeps one compact bar above the taskbar and follows the monitor where it starts.
 Without a custom proxy, the app uses Windows system proxy settings or a direct connection. If your network needs Clash Verge or another local HTTP/HTTPS proxy, set `CLASH_MIXED_PROXY` before launching:
 
 ```powershell
 $env:CLASH_MIXED_PROXY = "http://127.0.0.1:7890"
-Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
+Start-Process -FilePath .\dist\SubscriptionStatus.exe -WorkingDirectory (Resolve-Path .\dist)
 ```
 
 | Action | How |
@@ -84,21 +94,10 @@ The default refresh cycle is five minutes. Change it, history retention (7/30/90
 
 ## Build From Source
 
-A Windows machine with .NET Framework 4.5+ can compile the WinForms source with the in-box C# compiler:
+A Windows machine with .NET Framework 4.5+ can build the WinForms source with the in-box C# compiler. The shared script keeps output and checksums in `dist\`:
 
 ```powershell
-$csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
-if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
-& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
-  /out:SubscriptionStatus.exe `
-  /reference:System.dll `
-  /reference:System.Core.dll `
-  /reference:System.Drawing.dll `
-  /reference:System.Windows.Forms.dll `
-  /reference:System.Net.Http.dll `
-  /reference:System.Web.Extensions.dll `
-  $sources
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
 The repository also includes a GitHub Actions Windows build so source changes are compiled on every push and pull request.

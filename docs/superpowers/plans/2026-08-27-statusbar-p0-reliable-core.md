@@ -26,8 +26,8 @@
 ### Task 1: 添加设置模型与安全 JSON 存储
 
 **Files:**
-- Create: `AppSettings.cs`
-- Create: `SettingsStore.cs`
+- Create: `src/AppSettings.cs`
+- Create: `src/SettingsStore.cs`
 - Create: `tests/Smoke/p0-settings.ps1`
 - Modify: `.gitignore`
 
@@ -73,16 +73,16 @@ Expected: FAIL，因为当前程序集没有 `AppSettings` 类型。
 - [ ] **Step 6: 提交**
 
 ```powershell
-git add AppSettings.cs SettingsStore.cs tests/Smoke/p0-settings.ps1 .gitignore
+git add src/AppSettings.cs src/SettingsStore.cs tests/Smoke/p0-settings.ps1 .gitignore
 git commit -m "feat: 增加本地设置存储模型"
 ```
 
 ### Task 2: 抽出启动项管理并完成旧值迁移
 
 **Files:**
-- Create: `StartupManager.cs`
-- Modify: `SubscriptionStatus.cs:617-755`（删除窗口内启动项常量和私有方法，改为调用管理器）
-- Modify: `AppSettings.cs`
+- Create: `src/StartupManager.cs`
+- Modify: `src/SubscriptionStatus.cs:617-755`（删除窗口内启动项常量和私有方法，改为调用管理器）
+- Modify: `src/AppSettings.cs`
 - Modify: `tests/Smoke/p0-settings.ps1`
 
 **Interfaces:**
@@ -112,15 +112,15 @@ Expected: 首次运行只有一个有效 Run EXE 值；旧 marker 被清理；�
 - [ ] **Step 5: 提交**
 
 ```powershell
-git add StartupManager.cs AppSettings.cs SubscriptionStatus.cs tests/Smoke/p0-settings.ps1
+git add src/StartupManager.cs src/AppSettings.cs src/SubscriptionStatus.cs tests/Smoke/p0-settings.ps1
 git commit -m "refactor: 独立管理用户启动项"
 ```
 
 ### Task 3: 配置刷新调度与安全窗口样式
 
 **Files:**
-- Create: `RefreshScheduler.cs`
-- Modify: `SubscriptionStatus.cs:537-1248`
+- Create: `src/RefreshScheduler.cs`
+- Modify: `src/SubscriptionStatus.cs:537-1248`
 - Modify: `tests/Smoke/p0-settings.ps1`
 
 **Interfaces:**
@@ -153,16 +153,16 @@ git commit -m "refactor: 独立管理用户启动项"
 启动程序后检查进程响应、右键菜单周期和透明度入口；使用 `Alt+Tab` 人工确认没有状态栏条目；运行 smoke test 与 csc `/warnaserror`。
 
 ```powershell
-git add RefreshScheduler.cs SubscriptionStatus.cs tests/Smoke/p0-settings.ps1
+git add src/RefreshScheduler.cs src/SubscriptionStatus.cs tests/Smoke/p0-settings.ps1
 git commit -m "feat: 支持刷新周期和可选透明度"
 ```
 
 ### Task 4: 增加托盘恢复与设置窗口
 
 **Files:**
-- Create: `TrayController.cs`
-- Create: `SettingsForm.cs`
-- Modify: `SubscriptionStatus.cs`
+- Create: `src/TrayController.cs`
+- Create: `src/SettingsForm.cs`
+- Modify: `src/SubscriptionStatus.cs`
 - Modify: `README.md`
 - Modify: `docs/QUICKSTART.zh-CN.md`
 
@@ -194,17 +194,17 @@ README 和中文教程加入托盘恢复、设置窗口、Alt+Tab 隐藏、刷�
 - [ ] **Step 6: 提交**
 
 ```powershell
-git add TrayController.cs SettingsForm.cs SubscriptionStatus.cs README.md docs/QUICKSTART.zh-CN.md
+git add src/TrayController.cs src/SettingsForm.cs src/SubscriptionStatus.cs README.md docs/QUICKSTART.zh-CN.md
 git commit -m "feat: 增加托盘恢复和设置窗口"
 ```
 
 ### Task 5: 增加阈值通知和可操作诊断
 
 **Files:**
-- Create: `NotificationEvaluator.cs`
-- Create: `DiagnosticsService.cs`
-- Modify: `SubscriptionStatus.cs`
-- Modify: `AppSettings.cs`
+- Create: `src/NotificationEvaluator.cs`
+- Create: `src/DiagnosticsService.cs`
+- Modify: `src/SubscriptionStatus.cs`
+- Modify: `src/AppSettings.cs`
 - Modify: `README.md`
 - Modify: `SECURITY.md`
 - Modify: `.github/ISSUE_TEMPLATE/bug_report.md`
@@ -241,7 +241,7 @@ Run: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-s
 Expected: 通知边沿、计划注入、代理隐藏、右键诊断和剪贴板路径全部 PASS。
 
 ```powershell
-git add NotificationEvaluator.cs DiagnosticsService.cs AppSettings.cs SubscriptionStatus.cs README.md SECURITY.md .github/ISSUE_TEMPLATE/bug_report.md tests/Smoke/p0-settings.ps1
+git add src/NotificationEvaluator.cs src/DiagnosticsService.cs src/AppSettings.cs src/SubscriptionStatus.cs README.md SECURITY.md .github/ISSUE_TEMPLATE/bug_report.md tests/Smoke/p0-settings.ps1
 git commit -m "feat: 增加阈值通知和安全诊断"
 ```
 
@@ -256,7 +256,7 @@ git commit -m "feat: 增加阈值通知和安全诊断"
 - Create: `tests/Smoke/README.md`
 
 **Interfaces:**
-- CI compiles every root `*.cs` file (excluding test scripts) with `/warnaserror`.
+- CI compiles every `src/*.cs` file (excluding test scripts) with `/warnaserror`.
 - Smoke script accepts an executable path through `$env:STATUSBAR_EXE` and returns non-zero on any failed assertion.
 
 - [ ] **Step 1: 固化 smoke test 启动与单实例检查**
@@ -265,7 +265,7 @@ git commit -m "feat: 增加阈值通知和安全诊断"
 
 - [ ] **Step 2: 更新 Actions 编译所有源文件**
 
-在 workflow 中用 PowerShell 收集 `Get-ChildItem -Filter *.cs` 的根目录源文件，传给 csc；保留现有系统程序集引用、`/warnaserror` 和 artifact 上传；随后执行 smoke script 的纯静态/反射部分。
+在 workflow 中用 PowerShell 收集 `src/` 下 `Get-ChildItem -Filter *.cs` 的源文件，传给 csc；保留现有系统程序集引用、`/warnaserror` 和 artifact 上传；随后执行 smoke script 的纯静态/反射部分。
 
 - [ ] **Step 3: 补充 README、教程和变更记录**
 
@@ -276,12 +276,12 @@ README 首屏列出托盘、Alt+Tab 隐藏、刷新周期、透明度、通知�
 ```powershell
 git diff --check
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+$sources = @(Get-ChildItem -LiteralPath .\src -File -Filter *.cs | Select-Object -ExpandProperty FullName)
 & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
-  /out:SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll `
+  /out:.\dist\SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll `
   /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
   /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll $sources
-$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe)
+$env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe)
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
 ```
 

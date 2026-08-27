@@ -12,7 +12,7 @@
 
 ## 本地验证
 
-修改后使用 README 中的 .NET Framework `csc.exe` 命令编译，并确认 `SubscriptionStatus.exe` 能启动。提交前运行：
+修改后运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1` 编译，并确认 `dist\SubscriptionStatus.exe` 能启动。提交前运行：
 
 ```powershell
 git diff --check

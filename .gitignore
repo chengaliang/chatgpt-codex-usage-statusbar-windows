@@ -1,4 +1,5 @@
 # Local design preview and screenshots; the public repository contains only the native status bar.
+docs/assets/preview/
 index.html
 styles.css
 script.js

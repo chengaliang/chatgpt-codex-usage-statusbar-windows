@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - OAuth Token 只允许存在于 Provider 的单次请求内存路径，不进入缓存、历史、通知、诊断、剪贴板、更新请求或日志。
-- 根目录全部 `.cs` 使用 Windows 自带 .NET Framework `csc.exe` 编译并开启 `/warnaserror`；不引入外部运行时依赖。
+- `src/` 目录全部 `.cs` 使用 Windows 自带 .NET Framework `csc.exe` 编译并开启 `/warnaserror`；不引入外部运行时依赖。
 - 主状态栏和详情/设置/诊断窗口均使用 `ShowInTaskbar=false`，主状态栏和详情面板使用 `WS_EX_TOOLWINDOW`，不进入 `Alt+Tab`。
 - 本地只保存 `%LOCALAPPDATA%\ChatGPTCodexUsageStatusBar` 子目录内的设置、缓存和非敏感摘要；损坏文件必须备份并安全回退。
 - 新增业务方法和复杂私有方法必须有中文注释；所有异步 UI 事件必须捕获最终异常。
@@ -24,10 +24,10 @@
 ### Task 1: 统一额度状态模型与 Provider 边界
 
 **Files:**
-- Create: `UsageModels.cs`
-- Create: `IUsageProvider.cs`
-- Create: `OfficialUsageProvider.cs`
-- Modify: `SubscriptionStatus.cs`
+- Create: `src/UsageModels.cs`
+- Create: `src/IUsageProvider.cs`
+- Create: `src/OfficialUsageProvider.cs`
+- Modify: `src/SubscriptionStatus.cs`
 - Test: `tests/Smoke/p1-usage-hub.ps1`
 
 **Interfaces:**
@@ -59,8 +59,8 @@ Map existing successful `QuotaSnapshot` values to `UsageSnapshot.Live`; map stab
 
 ```powershell
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
-& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output /out:SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll $sources
+$sources = @(Get-ChildItem -LiteralPath .\src -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output /out:.\dist\SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll $sources
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
@@ -69,18 +69,18 @@ Expected: compiler exit 0 and the reflection smoke reaches its next assertion.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add UsageModels.cs IUsageProvider.cs OfficialUsageProvider.cs SubscriptionStatus.cs tests/Smoke/p1-usage-hub.ps1
+git add src/UsageModels.cs src/IUsageProvider.cs src/OfficialUsageProvider.cs src/SubscriptionStatus.cs tests/Smoke/p1-usage-hub.ps1
 git commit -m "refactor: 增加统一额度状态模型"
 ```
 
 ### Task 2: 最近成功缓存与历史摘要存储
 
 **Files:**
-- Create: `UsageCache.cs`
-- Create: `HistoryStore.cs`
-- Modify: `AppSettings.cs`
-- Modify: `SettingsStore.cs`
-- Modify: `SubscriptionStatus.cs`
+- Create: `src/UsageCache.cs`
+- Create: `src/HistoryStore.cs`
+- Modify: `src/AppSettings.cs`
+- Modify: `src/SettingsStore.cs`
+- Modify: `src/SubscriptionStatus.cs`
 - Test: `tests/Smoke/p1-usage-hub.ps1`
 
 **Interfaces:**
@@ -107,20 +107,20 @@ Corrupt both files, assert `.bak` exists and loading returns safe defaults. Seri
 - [ ] **Step 5: Compile, smoke and commit**
 
 ```powershell
-$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+$env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
-git add UsageCache.cs HistoryStore.cs AppSettings.cs SettingsStore.cs SubscriptionStatus.cs tests/Smoke/p1-usage-hub.ps1
+git add src/UsageCache.cs src/HistoryStore.cs src/AppSettings.cs src/SettingsStore.cs src/SubscriptionStatus.cs tests/Smoke/p1-usage-hub.ps1
 git commit -m "feat: 增加额度缓存与本地历史"
 ```
 
 ### Task 3: 详情面板和趋势视图
 
 **Files:**
-- Create: `UsageDetailsForm.cs`
-- Create: `TrendPanel.cs`
-- Modify: `SubscriptionStatus.cs`
-- Modify: `TrayController.cs`
-- Modify: `AppSettings.cs`
+- Create: `src/UsageDetailsForm.cs`
+- Create: `src/TrendPanel.cs`
+- Modify: `src/SubscriptionStatus.cs`
+- Modify: `src/TrayController.cs`
+- Modify: `src/AppSettings.cs`
 - Test: `tests/Smoke/p1-usage-hub.ps1`
 
 **Interfaces:**
@@ -149,19 +149,19 @@ Clicking a non-button area calls `ShowDetails()`; the tray menu gets `打开详�
 Start the executable, confirm it responds, verify hidden/restore and assert only one details window exists.
 
 ```powershell
-git add UsageDetailsForm.cs TrendPanel.cs SubscriptionStatus.cs TrayController.cs AppSettings.cs tests/Smoke/p1-usage-hub.ps1
+git add src/UsageDetailsForm.cs src/TrendPanel.cs src/SubscriptionStatus.cs src/TrayController.cs src/AppSettings.cs tests/Smoke/p1-usage-hub.ps1
 git commit -m "feat: 增加额度详情面板与趋势"
 ```
 
 ### Task 4: 主题、高 DPI 和多显示器体验
 
 **Files:**
-- Create: `ThemeManager.cs`
-- Create: `WindowPlacement.cs`
-- Modify: `AppSettings.cs`
-- Modify: `SettingsForm.cs`
-- Modify: `SubscriptionStatus.cs`
-- Modify: `UsageDetailsForm.cs`
+- Create: `src/ThemeManager.cs`
+- Create: `src/WindowPlacement.cs`
+- Modify: `src/AppSettings.cs`
+- Modify: `src/SettingsForm.cs`
+- Modify: `src/SubscriptionStatus.cs`
+- Modify: `src/UsageDetailsForm.cs`
 - Test: `tests/Smoke/p1-usage-hub.ps1`
 
 **Interfaces:**
@@ -185,17 +185,17 @@ Use stable minimum sizes, `AutoScaleMode=Dpi` for larger forms, visible-area int
 Test invalid coordinates, light/dark/system settings, 125%/150% scale if available and a disconnected-monitor fallback.
 
 ```powershell
-git add ThemeManager.cs WindowPlacement.cs AppSettings.cs SettingsForm.cs SubscriptionStatus.cs UsageDetailsForm.cs tests/Smoke/p1-usage-hub.ps1
+git add src/ThemeManager.cs src/WindowPlacement.cs src/AppSettings.cs src/SettingsForm.cs src/SubscriptionStatus.cs src/UsageDetailsForm.cs tests/Smoke/p1-usage-hub.ps1
 git commit -m "feat: 优化主题与多显示器布局"
 ```
 
 ### Task 5: 诊断中心和可操作错误状态
 
 **Files:**
-- Create: `DiagnosticsForm.cs`
-- Modify: `DiagnosticsService.cs`
-- Modify: `SubscriptionStatus.cs`
-- Modify: `UsageDetailsForm.cs`
+- Create: `src/DiagnosticsForm.cs`
+- Modify: `src/DiagnosticsService.cs`
+- Modify: `src/SubscriptionStatus.cs`
+- Modify: `src/UsageDetailsForm.cs`
 - Modify: `SECURITY.md`
 - Test: `tests/Smoke/p1-usage-hub.ps1`
 
@@ -218,20 +218,20 @@ Add checks for OAuth mode/file presence, system/custom proxy mode, HTTPS endpoin
 - [ ] **Step 4: Run privacy/UI smoke and commit**
 
 ```powershell
-$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+$env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
-git add DiagnosticsForm.cs DiagnosticsService.cs SubscriptionStatus.cs UsageDetailsForm.cs SECURITY.md tests/Smoke/p1-usage-hub.ps1
+git add src/DiagnosticsForm.cs src/DiagnosticsService.cs src/SubscriptionStatus.cs src/UsageDetailsForm.cs SECURITY.md tests/Smoke/p1-usage-hub.ps1
 git commit -m "feat: 增加可操作诊断中心"
 ```
 
 ### Task 6: 可信更新与发布资产
 
 **Files:**
-- Create: `UpdateChecker.cs`
-- Create: `ReleaseVerifier.cs`
-- Modify: `AppSettings.cs`
-- Modify: `SettingsForm.cs`
-- Modify: `TrayController.cs`
+- Create: `src/UpdateChecker.cs`
+- Create: `src/ReleaseVerifier.cs`
+- Modify: `src/AppSettings.cs`
+- Modify: `src/SettingsForm.cs`
+- Modify: `src/TrayController.cs`
 - Modify: `.github/workflows/build.yml`
 - Modify: `CHANGELOG.md`
 - Test: `tests/Smoke/p1-usage-hub.ps1`
@@ -250,12 +250,12 @@ Use `HttpClient` with a short timeout, parse only tag/name/download/checksum URL
 
 - [ ] **Step 3: Add checksum to the release workflow**
 
-After compilation run `Get-FileHash SubscriptionStatus.exe -Algorithm SHA256`, write ASCII `SHA256SUMS.txt`, upload both as artifact and Release assets. Keep release metadata ASCII to avoid Windows path/encoding issues.
+After compilation run `Get-FileHash .\dist\SubscriptionStatus.exe -Algorithm SHA256`, write ASCII `SHA256SUMS.txt`, upload both as artifact and Release assets. Keep release metadata ASCII to avoid Windows path/encoding issues.
 
 - [ ] **Step 4: Run verifier/update/privacy checks and commit**
 
 ```powershell
-git add UpdateChecker.cs ReleaseVerifier.cs AppSettings.cs SettingsForm.cs TrayController.cs .github/workflows/build.yml CHANGELOG.md tests/Smoke/p1-usage-hub.ps1
+git add src/UpdateChecker.cs src/ReleaseVerifier.cs src/AppSettings.cs src/SettingsForm.cs src/TrayController.cs .github/workflows/build.yml CHANGELOG.md tests/Smoke/p1-usage-hub.ps1
 git commit -m "feat: 增加可信更新校验"
 ```
 
@@ -273,7 +273,7 @@ git commit -m "feat: 增加可信更新校验"
 
 **Interfaces:**
 - Fixtures contain no credentials, account IDs, secret URLs or personal data.
-- CI compiles all root `.cs`, runs smoke and sensitive-pattern checks, and uploads EXE/SHA-256 artifacts only from the built workspace.
+- CI compiles all `src/` `.cs` files, runs smoke and sensitive-pattern checks, and uploads EXE/SHA-256 artifacts only from `dist/`.
 
 - [ ] **Step 1: Add fixture parsing tests**
 
@@ -285,16 +285,16 @@ Document compact mode, details panel, cache age, history retention, themes, noti
 
 - [ ] **Step 3: Expand CI gates**
 
-Compile all root files, run `git diff --check`, smoke, fixture parsing and a sensitive-pattern scan. Upload `SubscriptionStatus.exe` and `SHA256SUMS.txt` only from the built workspace.
+Compile all `src/` files, run `git diff --check`, smoke, fixture parsing and a sensitive-pattern scan. Upload `SubscriptionStatus.exe` and `SHA256SUMS.txt` only from `dist/`.
 
 - [ ] **Step 4: Build and verify locally**
 
 ```powershell
 git diff --check
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
-& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output /out:SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll $sources
-$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+$sources = @(Get-ChildItem -LiteralPath .\src -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+& $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output /out:.\dist\SubscriptionStatus.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll $sources
+$env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
 ```
 
