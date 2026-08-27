@@ -1,6 +1,6 @@
 # ChatGPT / Codex Usage Status Bar for Windows
 
-[![Build Windows status bar](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/actions/workflows/build.yml/badge.svg)](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/actions/workflows/build.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Build Windows status bar](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/actions/workflows/build.yml/badge.svg)](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/actions/workflows/build.yml) [![GitHub stars](https://img.shields.io/github/stars/chengaliang/chatgpt-codex-usage-statusbar-windows?style=flat)](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/stargazers) [![GitHub issues](https://img.shields.io/github/issues/chengaliang/chatgpt-codex-usage-statusbar-windows?style=flat)](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/issues) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## 中文概览
 
@@ -109,6 +109,16 @@ The app uses Windows system proxy settings or a direct connection by default. If
 ### The bar is not visible
 
 Run [`start-statusbar.cmd`](start-statusbar.cmd) again. The app positions itself inside the primary work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
+
+## 持续维护与反馈
+
+项目目标是长期跟进 ChatGPT/Codex 官方额度接口的变化，定期修复可复现问题，并持续优化兼容性、稳定性和使用体验。欢迎通过 [Issues](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/issues) 提交：
+
+- OAuth、额度窗口、重置时间或网络连接问题
+- Windows 版本、显示缩放和窗口布局问题
+- 清晰可复现的功能建议和改进想法
+
+提交问题前请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。反馈中不要粘贴 `auth.json`、OAuth Token、账户 ID、完整响应或个人截图；每次发布会在 Release 中记录变更。项目对你有帮助时，欢迎点 Star、Watch 或分享给有同样需求的人，这能帮助维护工作持续获得优先级。
 
 ## Search Keywords
 
