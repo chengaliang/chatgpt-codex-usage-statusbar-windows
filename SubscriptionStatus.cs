@@ -30,6 +30,10 @@ internal sealed class QuotaWindow
     {
         Name = name;
         LimitWindowSeconds = limitWindowSeconds;
+        if (double.IsNaN(usedPercent) || double.IsInfinity(usedPercent))
+        {
+            usedPercent = 0d;
+        }
         UsedPercent = Math.Max(0d, Math.Min(100d, usedPercent));
         ResetAt = resetAt;
     }
@@ -521,6 +525,11 @@ internal sealed class OfficialQuotaService : IDisposable
         try
         {
             value = Convert.ToDouble(source[key], CultureInfo.InvariantCulture);
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                value = 0d;
+                return false;
+            }
             return true;
         }
         catch (Exception)
@@ -607,6 +616,16 @@ internal sealed class StatusWindow : Form
     private bool startupUpdateCheckCompleted;
     private Task refreshInFlight;
     private Task updateCheckInFlight;
+    private readonly System.Windows.Forms.Timer visualTimer;
+    private double animatedPrimaryPercent;
+    private double animatedSecondaryPercent;
+    private double targetPrimaryPercent;
+    private double targetSecondaryPercent;
+    private DateTime visualPulseStartedAt;
+    private DateTime nextResetPaintAt;
+    private float visualPhase;
+    private int refreshRotation;
+    private bool visualAnimationActive;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -676,6 +695,12 @@ internal sealed class StatusWindow : Form
         }
         settings.AutoStartEnabled = autoStartEnabled;
         themePalette = ThemePalette.Create(settings.Theme);
+        visualTimer = new System.Windows.Forms.Timer();
+        visualTimer.Interval = 1000;
+        visualTimer.Tick += VisualTimerTick;
+        UpdateVisualTargets(false);
+        nextResetPaintAt = DateTime.UtcNow;
+        visualTimer.Start();
         ApplyTheme();
         ApplyBackgroundStyle();
         contextMenu = CreateContextMenu();
@@ -878,6 +903,8 @@ internal sealed class StatusWindow : Form
         RememberPosition();
         refreshScheduler.Stop();
         refreshScheduler.Dispose();
+        visualTimer.Stop();
+        visualTimer.Dispose();
         cancellation.Cancel();
         usageProvider.Dispose();
         updateService.Dispose();
@@ -892,6 +919,7 @@ internal sealed class StatusWindow : Form
     {
         RememberPosition();
         Hide();
+        visualTimer.Stop();
         trayController.SetStatus(BuildTrayStatus());
     }
 
@@ -933,6 +961,7 @@ internal sealed class StatusWindow : Form
         Show();
         WindowState = FormWindowState.Normal;
         Activate();
+        visualTimer.Start();
         trayController.SetStatus(BuildTrayStatus());
     }
 
@@ -1002,6 +1031,7 @@ internal sealed class StatusWindow : Form
             CopySettings(selected);
             autoStartEnabled = selected.AutoStartEnabled;
             autoStartError = string.Empty;
+            UpdateVisualTargets(settings.AnimationsEnabled);
             autoStartMenuItem.Checked = autoStartEnabled;
             refreshScheduler.SetInterval(settings.RefreshIntervalMinutes);
             UpdateRefreshIntervalChecks();
@@ -1027,6 +1057,7 @@ internal sealed class StatusWindow : Form
         settings.NotificationsEnabled = source.NotificationsEnabled;
         settings.NotificationThresholdPercent = source.NotificationThresholdPercent;
         settings.RestorePosition = source.RestorePosition;
+        settings.AnimationsEnabled = source.AnimationsEnabled;
         settings.HasSavedPosition = source.HasSavedPosition;
         settings.PositionX = source.PositionX;
         settings.PositionY = source.PositionY;
@@ -1147,6 +1178,7 @@ internal sealed class StatusWindow : Form
         }
 
         isRefreshing = true;
+        BeginVisualRefresh();
         Invalidate();
         try
         {
@@ -1226,6 +1258,148 @@ internal sealed class StatusWindow : Form
     }
 
     /// <summary>
+    /// 启动一次轻量视觉反馈。刷新图标旋转、状态点呼吸和进度条过渡共用同一个 WinForms 定时器，
+    /// 避免为每个控件创建独立线程；关闭动效后会立即切换为静态绘制。
+    /// </summary>
+    private void BeginVisualRefresh()
+    {
+        if (!settings.AnimationsEnabled)
+        {
+            visualAnimationActive = false;
+            UpdateVisualTimerInterval();
+            return;
+        }
+
+        visualAnimationActive = true;
+        visualPulseStartedAt = DateTime.UtcNow;
+        visualPhase = 0f;
+        refreshRotation = 0;
+        UpdateVisualTimerInterval();
+    }
+
+    /// <summary>
+    /// 根据当前两个主窗口计算动效目标值。文字始终显示真实百分比，只有进度条做平滑过渡，
+    /// 因此动画不会改变用户对额度的判断。
+    /// </summary>
+    private void UpdateVisualTargets(bool animate)
+    {
+        QuotaWindow primary = FindDisplayWindow(18000, 0);
+        QuotaWindow secondary = FindDisplayWindow(604800, 1, primary);
+        targetPrimaryPercent = GetWindowPercent(primary);
+        targetSecondaryPercent = GetWindowPercent(secondary);
+
+        if (!animate || !settings.AnimationsEnabled)
+        {
+            animatedPrimaryPercent = targetPrimaryPercent;
+            animatedSecondaryPercent = targetSecondaryPercent;
+            visualAnimationActive = false;
+            UpdateVisualTimerInterval();
+            return;
+        }
+
+        visualAnimationActive = true;
+        visualPulseStartedAt = DateTime.UtcNow;
+        visualPhase = 0f;
+        UpdateVisualTimerInterval();
+    }
+
+    private static double GetWindowPercent(QuotaWindow window)
+    {
+        return window == null ? 0d : window.UsedPercent;
+    }
+
+    private static double StepVisualValue(double current, double target)
+    {
+        double delta = target - current;
+        double distance = Math.Abs(delta);
+        if (distance <= 0.05d)
+        {
+            return target;
+        }
+
+        double step = Math.Max(0.6d, distance * 0.22d);
+        return current + Math.Sign(delta) * Math.Min(distance, step);
+    }
+
+    private void VisualTimerTick(object sender, EventArgs e)
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        bool shouldInvalidate = false;
+        if (!settings.AnimationsEnabled)
+        {
+            if (animatedPrimaryPercent != targetPrimaryPercent || animatedSecondaryPercent != targetSecondaryPercent)
+            {
+                animatedPrimaryPercent = targetPrimaryPercent;
+                animatedSecondaryPercent = targetSecondaryPercent;
+                shouldInvalidate = true;
+            }
+            visualAnimationActive = false;
+        }
+        else if (visualAnimationActive)
+        {
+            double nextPrimary = StepVisualValue(animatedPrimaryPercent, targetPrimaryPercent);
+            double nextSecondary = StepVisualValue(animatedSecondaryPercent, targetSecondaryPercent);
+            if (Math.Abs(nextPrimary - animatedPrimaryPercent) > 0.001d ||
+                Math.Abs(nextSecondary - animatedSecondaryPercent) > 0.001d)
+            {
+                animatedPrimaryPercent = nextPrimary;
+                animatedSecondaryPercent = nextSecondary;
+            }
+
+            visualPhase += 0.22f;
+            if (visualPhase > (float)(Math.PI * 2d))
+            {
+                visualPhase -= (float)(Math.PI * 2d);
+            }
+            if (isRefreshing)
+            {
+                refreshRotation = (refreshRotation + 18) % 360;
+            }
+
+            bool reachedTarget = Math.Abs(animatedPrimaryPercent - targetPrimaryPercent) <= 0.05d &&
+                Math.Abs(animatedSecondaryPercent - targetSecondaryPercent) <= 0.05d;
+            bool pulseFinished = (now - visualPulseStartedAt).TotalMilliseconds >= 900d;
+            if (reachedTarget && pulseFinished && !isRefreshing)
+            {
+                visualAnimationActive = false;
+            }
+            shouldInvalidate = true;
+        }
+
+        // 重置时间显示精确到分钟，15 秒检查一次即可避免跨分钟时文字停留旧值。
+        if (now >= nextResetPaintAt)
+        {
+            nextResetPaintAt = now.AddSeconds(15d);
+            shouldInvalidate = true;
+        }
+
+        UpdateVisualTimerInterval();
+        if (shouldInvalidate)
+        {
+            Invalidate();
+        }
+    }
+
+    private void UpdateVisualTimerInterval()
+    {
+        if (visualTimer == null)
+        {
+            return;
+        }
+
+        int interval = settings.AnimationsEnabled && visualAnimationActive ? 33 : 1000;
+        if (visualTimer.Interval != interval)
+        {
+            visualTimer.Interval = interval;
+        }
+    }
+
+    /// <summary>
     /// 统一处理 Provider 结果。只有在线成功结果会更新缓存和历史；失败时保留最近成功窗口，
     /// 同时把本次失败状态写入内存模型，便于状态栏、工具提示和诊断中心同时表达真实情况。
     /// </summary>
@@ -1241,6 +1415,7 @@ internal sealed class StatusWindow : Form
         {
             usageSnapshot = result;
             snapshot = result.ToQuotaSnapshot();
+            UpdateVisualTargets(true);
             string cacheError;
             usageCache.TrySave(result, out cacheError);
             historyStore.Append(result);
@@ -1252,6 +1427,7 @@ internal sealed class StatusWindow : Form
         {
             usageSnapshot = result;
             snapshot = result.ToQuotaSnapshot();
+            UpdateVisualTargets(true);
             return;
         }
 
@@ -1269,11 +1445,13 @@ internal sealed class StatusWindow : Form
         {
             usageSnapshot = usageSnapshot.WithFailure(status, errorCode, queriedAt);
             snapshot = usageSnapshot.ToQuotaSnapshot();
+            UpdateVisualTargets(true);
             return;
         }
 
         usageSnapshot = UsageSnapshot.Failure("chatgpt-codex", status, errorCode, queriedAt);
         snapshot = usageSnapshot.ToQuotaSnapshot();
+        UpdateVisualTargets(true);
     }
 
     private void EvaluateNotifications(QuotaSnapshot result)
@@ -1379,6 +1557,7 @@ internal sealed class StatusWindow : Form
         historyStore.Clear();
         usageSnapshot = UsageSnapshot.Loading("chatgpt-codex");
         snapshot = QuotaSnapshot.Loading();
+        UpdateVisualTargets(true);
         toolTip.SetToolTip(this, BuildTooltipText());
         trayController.SetStatus(BuildTrayStatus());
         Invalidate();
@@ -1488,7 +1667,10 @@ internal sealed class StatusWindow : Form
             g.FillRectangle(background, ClientRectangle);
         }
 
-        using (Pen border = new Pen(themePalette.Border, 1f))
+        Color borderColor = visualAnimationActive && settings.AnimationsEnabled
+            ? BlendColors(themePalette.Border, themePalette.PrimaryAccent, 0.35f)
+            : themePalette.Border;
+        using (Pen border = new Pen(borderColor, 1f))
         using (GraphicsPath borderPath = RoundedRectangle(new Rectangle(0, 0, WindowWidth - 1, WindowHeight - 1), 9))
         {
             g.DrawPath(border, borderPath);
@@ -1498,9 +1680,9 @@ internal sealed class StatusWindow : Form
         DrawDivider(g, 58);
         QuotaWindow primaryWindow = FindDisplayWindow(18000, 0);
         QuotaWindow secondaryWindow = FindDisplayWindow(604800, 1, primaryWindow);
-        DrawWindow(g, new Rectangle(68, 0, 58, WindowHeight), primaryWindow, CompactWindowName(primaryWindow, "1"), themePalette.PrimaryAccent);
+        DrawWindow(g, new Rectangle(68, 0, 58, WindowHeight), primaryWindow, CompactWindowName(primaryWindow, "1"), themePalette.PrimaryAccent, animatedPrimaryPercent);
         DrawDivider(g, 126);
-        DrawWindow(g, new Rectangle(136, 0, 58, WindowHeight), secondaryWindow, CompactWindowName(secondaryWindow, "2"), themePalette.SecondaryAccent);
+        DrawWindow(g, new Rectangle(136, 0, 58, WindowHeight), secondaryWindow, CompactWindowName(secondaryWindow, "2"), themePalette.SecondaryAccent, animatedSecondaryPercent);
         DrawDivider(g, 194);
         DrawStatus(g);
         DrawActionButtons(g);
@@ -1508,7 +1690,17 @@ internal sealed class StatusWindow : Form
 
     private void DrawBrand(Graphics g)
     {
-        Color statusColor = snapshot.Success && !snapshot.IsStale ? themePalette.Success : themePalette.Warning;
+        Color statusColor = GetOverallStatusColor();
+        if (settings.AnimationsEnabled && visualAnimationActive)
+        {
+            double wave = (Math.Sin(visualPhase) + 1d) / 2d;
+            int haloAlpha = 22 + (int)Math.Round(wave * 30d);
+            int haloSize = 11 + (int)Math.Round(wave * 4d);
+            using (SolidBrush halo = new SolidBrush(Color.FromArgb(haloAlpha, statusColor)))
+            {
+                g.FillEllipse(halo, 11 - haloSize / 2, 19 - haloSize / 2, haloSize, haloSize);
+            }
+        }
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
             g.FillEllipse(dot, 8, 16, 7, 7);
@@ -1527,18 +1719,20 @@ internal sealed class StatusWindow : Form
         return "GPT";
     }
 
-    private void DrawWindow(Graphics g, Rectangle bounds, QuotaWindow window, string compactName, Color accent)
+    private void DrawWindow(Graphics g, Rectangle bounds, QuotaWindow window, string compactName, Color accent, double visualPercent)
     {
         double usedPercent = window == null ? 0d : window.UsedPercent;
         string percentage = window == null ? "--" : usedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
         int trackWidth = bounds.Width - 6;
-        int fillWidth = (int)Math.Round(trackWidth * usedPercent / 100d);
+        double safeVisualPercent = Math.Max(0d, Math.Min(100d, visualPercent));
+        int fillWidth = (int)Math.Round(trackWidth * safeVisualPercent / 100d);
         fillWidth = Math.Max(0, Math.Min(trackWidth, fillWidth));
+        Color fillColor = GetUsageColor(usedPercent, accent);
 
         DrawText(g, compactName, "Consolas", 7f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 11);
         DrawTextRight(g, percentage, "Consolas", 8.5f, FontStyle.Bold, themePalette.PrimaryText, bounds.Right - 2, 9);
 
-        Rectangle track = new Rectangle(bounds.Left, 27, trackWidth, 2);
+        Rectangle track = new Rectangle(bounds.Left, 25, trackWidth, 3);
         using (SolidBrush trackBrush = new SolidBrush(themePalette.Track))
         using (GraphicsPath trackPath = RoundedRectangle(track, 2))
         {
@@ -1547,21 +1741,45 @@ internal sealed class StatusWindow : Form
         if (fillWidth > 0)
         {
             Rectangle fill = new Rectangle(track.Left, track.Top, fillWidth, track.Height);
-            using (SolidBrush fillBrush = new SolidBrush(accent))
+            using (SolidBrush glowBrush = new SolidBrush(Color.FromArgb(40, fillColor)))
+            using (GraphicsPath glowPath = RoundedRectangle(new Rectangle(fill.Left, fill.Top - 1, fill.Width, fill.Height + 2), 2))
+            using (LinearGradientBrush fillBrush = new LinearGradientBrush(
+                fill,
+                BlendColors(fillColor, Color.White, 0.28f),
+                fillColor,
+                90f))
             using (GraphicsPath fillPath = RoundedRectangle(fill, 2))
             {
+                g.FillPath(glowBrush, glowPath);
                 g.FillPath(fillBrush, fillPath);
+                if (settings.AnimationsEnabled && visualAnimationActive && fill.Width > 7)
+                {
+                    double wave = (Math.Sin(visualPhase) + 1d) / 2d;
+                    int shineX = fill.Left + (int)Math.Round((fill.Width - 3) * wave);
+                    using (SolidBrush shine = new SolidBrush(Color.FromArgb(120, Color.White)))
+                    {
+                        g.FillRectangle(shine, shineX, fill.Top, 2, fill.Height);
+                    }
+                }
             }
         }
 
         // 底部直接显示日期和下一次重置时间；扩大额度列宽度后避免日期与分隔线重叠。
         string reset = window == null ? "--" : FormatVisibleReset(window.ResetAt);
-        DrawText(g, reset, "Consolas", 6.5f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 28);
+        DrawText(g, reset, "Consolas", 6.5f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 29);
     }
 
     private void DrawStatus(Graphics g)
     {
-        Color statusColor = snapshot.Success && !snapshot.IsStale ? themePalette.Success : themePalette.Warning;
+        Color statusColor = GetOverallStatusColor();
+        if (settings.AnimationsEnabled && visualAnimationActive)
+        {
+            double wave = (Math.Sin(visualPhase + 1.2d) + 1d) / 2d;
+            using (Pen pulse = new Pen(Color.FromArgb(45 + (int)Math.Round(wave * 35d), statusColor), 1f))
+            {
+                g.DrawEllipse(pulse, 201, 14, 9, 9);
+            }
+        }
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
             g.FillEllipse(dot, 203, 16, 5, 5);
@@ -1584,7 +1802,8 @@ internal sealed class StatusWindow : Form
         {
             refreshPen.StartCap = LineCap.Round;
             refreshPen.EndCap = LineCap.Round;
-            g.DrawArc(refreshPen, new Rectangle(refreshArea.Left + 4, refreshArea.Top + 4, 10, 10), 35, 285);
+            int rotation = isRefreshing && settings.AnimationsEnabled ? refreshRotation : 0;
+            g.DrawArc(refreshPen, new Rectangle(refreshArea.Left + 4, refreshArea.Top + 4, 10, 10), 35 + rotation, 285);
             Point[] arrow =
             {
                 new Point(refreshArea.Left + 14, refreshArea.Top + 5),
@@ -1609,7 +1828,49 @@ internal sealed class StatusWindow : Form
         using (GraphicsPath path = RoundedRectangle(area, 7))
         {
             g.FillPath(brush, path);
+            if (hover)
+            {
+                using (Pen hoverBorder = new Pen(Color.FromArgb(120, themePalette.SecondaryAccent), 1f))
+                {
+                    g.DrawPath(hoverBorder, path);
+                }
+            }
         }
+    }
+
+    private Color GetOverallStatusColor()
+    {
+        if (snapshot == null || !snapshot.Success)
+        {
+            return snapshot != null && snapshot.StatusText == "读取中"
+                ? themePalette.SecondaryAccent
+                : themePalette.Error;
+        }
+        return snapshot.IsStale ? themePalette.Warning : themePalette.Success;
+    }
+
+    private Color GetUsageColor(double usedPercent, Color accent)
+    {
+        if (usedPercent >= 95d)
+        {
+            return themePalette.Error;
+        }
+        if (usedPercent >= 80d)
+        {
+            return themePalette.Warning;
+        }
+        return accent;
+    }
+
+    private static Color BlendColors(Color first, Color second, float secondWeight)
+    {
+        float weight = Math.Max(0f, Math.Min(1f, secondWeight));
+        float firstWeight = 1f - weight;
+        return Color.FromArgb(
+            (int)Math.Round(first.A * firstWeight + second.A * weight),
+            (int)Math.Round(first.R * firstWeight + second.R * weight),
+            (int)Math.Round(first.G * firstWeight + second.G * weight),
+            (int)Math.Round(first.B * firstWeight + second.B * weight));
     }
 
     private QuotaWindow FindDisplayWindow(int seconds, int fallbackIndex, QuotaWindow excluded = null)

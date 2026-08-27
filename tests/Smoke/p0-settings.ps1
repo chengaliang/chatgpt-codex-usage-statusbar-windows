@@ -32,12 +32,14 @@ try {
 
     $settings.RefreshIntervalMinutes = 10
     $settings.NotificationThresholdPercent = 90
+    $settings.AnimationsEnabled = $false
     $store.Save($settings)
     $savedJson = [IO.File]::ReadAllText($settingsPath)
     if ($savedJson -match 'access_token|refresh_token|id_token|account_id') { throw 'settings file contains credential fields' }
     $loaded = $store.Load()
     if ($loaded.RefreshIntervalMinutes -ne 10) { throw 'saved refresh interval was not loaded' }
     if ($loaded.NotificationThresholdPercent -ne 90) { throw 'saved threshold was not loaded' }
+    if ($loaded.AnimationsEnabled) { throw 'saved animations setting was not loaded' }
 
     [IO.File]::WriteAllText($settingsPath, '{ invalid json', [Text.Encoding]::UTF8)
     $fallback = $store.Load()

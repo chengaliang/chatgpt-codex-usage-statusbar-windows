@@ -30,6 +30,10 @@ internal sealed class UsageWindow
     public UsageWindow(int limitWindowSeconds, double usedPercent, DateTimeOffset? resetAt)
     {
         LimitWindowSeconds = Math.Max(0, limitWindowSeconds);
+        if (double.IsNaN(usedPercent) || double.IsInfinity(usedPercent))
+        {
+            usedPercent = 0d;
+        }
         UsedPercent = Math.Max(0d, Math.Min(100d, usedPercent));
         ResetAt = resetAt;
         DisplayName = CreateDisplayName(LimitWindowSeconds);

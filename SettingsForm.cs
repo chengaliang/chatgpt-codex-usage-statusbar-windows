@@ -17,6 +17,7 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox autoCheckUpdatesCheck;
     private readonly CheckBox notificationsCheck;
     private readonly CheckBox restorePositionCheck;
+    private readonly CheckBox animationsCheck;
     private readonly NumericUpDown thresholdInput;
     private readonly ThemePalette palette;
 
@@ -29,7 +30,7 @@ internal sealed class SettingsForm : Form
         palette = ThemePalette.Create(draft.Theme);
 
         Text = "状态栏设置";
-        ClientSize = new Size(390, 430);
+        ClientSize = new Size(390, 468);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -44,9 +45,10 @@ internal sealed class SettingsForm : Form
         layout.Dock = DockStyle.Fill;
         layout.Padding = new Padding(16, 14, 16, 12);
         layout.ColumnCount = 2;
-        layout.RowCount = 11;
+        layout.RowCount = 12;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 142f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
@@ -127,6 +129,12 @@ internal sealed class SettingsForm : Form
         restorePositionCheck.AutoSize = true;
         restorePositionCheck.Checked = draft.RestorePosition;
 
+        animationsCheck = new CheckBox();
+        animationsCheck.Text = "平滑动效与状态反馈";
+        animationsCheck.AutoSize = true;
+        animationsCheck.Checked = draft.AnimationsEnabled;
+        animationsCheck.AccessibleName = "开启平滑进度和状态动效";
+
         AddRow(layout, 0, "自动刷新", refreshCombo);
         AddRow(layout, 1, "历史保留", historyRetentionCombo);
         AddRow(layout, 2, "主题", themeCombo);
@@ -137,6 +145,7 @@ internal sealed class SettingsForm : Form
         AddRow(layout, 7, "通知", notificationsCheck);
         AddRow(layout, 8, "通知阈值", thresholdInput);
         AddRow(layout, 9, "窗口位置", restorePositionCheck);
+        AddRow(layout, 10, "视觉反馈", animationsCheck);
 
         FlowLayoutPanel buttons = new FlowLayoutPanel();
         buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -159,7 +168,7 @@ internal sealed class SettingsForm : Form
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 10);
+        layout.Controls.Add(buttons, 0, 11);
         layout.SetColumnSpan(buttons, 2);
         ApplyControlTheme(layout);
         Controls.Add(layout);
@@ -288,6 +297,7 @@ internal sealed class SettingsForm : Form
         draft.NotificationsEnabled = notificationsCheck.Checked;
         draft.NotificationThresholdPercent = Decimal.ToInt32(thresholdInput.Value);
         draft.RestorePosition = restorePositionCheck.Checked;
+        draft.AnimationsEnabled = animationsCheck.Checked;
         draft.Normalize();
         Result = draft.Clone();
         DialogResult = DialogResult.OK;

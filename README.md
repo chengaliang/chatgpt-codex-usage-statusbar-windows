@@ -4,7 +4,7 @@
 
 ## 中文概览
 
-这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；双击即可打开带趋势图的详情窗口。
+这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；双击即可打开带趋势图的详情窗口。刷新时提供可关闭的平滑过渡、状态呼吸和额度风险色反馈。
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
@@ -33,7 +33,7 @@
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
 - **Tray-first workflow**: closing the bar hides it to the notification area instead of killing the process; double-click the tray icon to restore it, and use the tray menu to refresh, configure or exit.
-- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, 7/30/90-day local history, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, startup delay and opt-in threshold notifications.
+- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, 7/30/90-day local history, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, startup delay, opt-in threshold notifications and smooth visual feedback.
 - **Startup & diagnostics**: first launch enables current-user startup by default; optionally delay the first query or check for updates on startup (prompt only); the diagnostic center shows fixed checks, next actions and a safe copyable report.
 - **Safe updates**: manually checks GitHub Releases, accepts only GitHub HTTPS links, and exposes SHA-256 verification without silently replacing a running binary.
 - **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
@@ -143,6 +143,6 @@ Right-click the bar to turn current-user startup on or off. **诊断中心** ref
 
 ## Search Keywords
 
-`chatgpt usage limits` · `chatgpt quota` · `chatgpt plus quota` · `chatgpt pro quota` · `chatgpt team quota` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `windows startup` · `diagnostics` · `oauth` · `clash-verge` · `usage monitor`
+`chatgpt usage limits` · `chatgpt quota` · `chatgpt plus quota` · `chatgpt pro quota` · `chatgpt team quota` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `windows startup` · `diagnostics` · `oauth` · `clash-verge` · `usage monitor` · `animated status bar`
 
 If this saves you time, a ⭐ on GitHub helps other users find the project.

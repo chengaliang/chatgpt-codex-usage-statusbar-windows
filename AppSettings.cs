@@ -40,6 +40,7 @@ internal sealed class AppSettings
     public bool NotificationsEnabled { get; set; }
     public int NotificationThresholdPercent { get; set; }
     public bool RestorePosition { get; set; }
+    public bool AnimationsEnabled { get; set; }
     public bool HasSavedPosition { get; set; }
     public int PositionX { get; set; }
     public int PositionY { get; set; }
@@ -56,6 +57,7 @@ internal sealed class AppSettings
         NotificationsEnabled = false;
         NotificationThresholdPercent = 80;
         RestorePosition = true;
+        AnimationsEnabled = true;
         HasSavedPosition = false;
         PositionX = 0;
         PositionY = 0;
@@ -116,6 +118,7 @@ internal sealed class AppSettings
             NotificationsEnabled = NotificationsEnabled,
             NotificationThresholdPercent = NotificationThresholdPercent,
             RestorePosition = RestorePosition,
+            AnimationsEnabled = AnimationsEnabled,
             HasSavedPosition = HasSavedPosition,
             PositionX = PositionX,
             PositionY = PositionY

@@ -103,6 +103,7 @@ internal sealed class DiagnosticsService
         report.AppendLine("启动更新检查：" + (safeSettings.AutoCheckUpdates ? "已开启（仅提示）" : "已关闭"));
         report.AppendLine("主题：" + GetThemeText(safeSettings.Theme));
         report.AppendLine("背景样式：" + GetBackgroundStyleText(safeSettings.BackgroundStyle));
+        report.AppendLine("平滑动效：" + (safeSettings.AnimationsEnabled ? "已开启" : "已关闭"));
         report.AppendLine("通知：" + (safeSettings.NotificationsEnabled ? "已开启（阈值 " + safeSettings.NotificationThresholdPercent.ToString(CultureInfo.InvariantCulture) + "%）" : "已关闭"));
         report.AppendLine("本地缓存：" + (File.Exists(Path.Combine(LocalStoragePaths.RootDirectory, "cache.json")) ? "可用" : "暂无"));
         report.AppendLine("本地历史：" + (File.Exists(Path.Combine(LocalStoragePaths.RootDirectory, "history.json")) ? "可用" : "暂无"));

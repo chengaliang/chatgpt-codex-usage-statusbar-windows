@@ -32,9 +32,14 @@ $settingsProbe.Normalize()
 if ($settingsProbe.Theme.ToString() -ne 'System') { throw 'invalid theme was not normalized' }
 if ($settingsProbe.HistoryRetentionDays -ne 30) { throw 'invalid history retention was not normalized' }
 if ($settingsProbe.LaunchDelaySeconds -ne 0) { throw 'invalid launch delay was not normalized' }
-foreach ($name in @('HistoryRetentionDays', 'LaunchDelaySeconds', 'AutoCheckUpdates')) {
+foreach ($name in @('HistoryRetentionDays', 'LaunchDelaySeconds', 'AutoCheckUpdates', 'AnimationsEnabled')) {
     if ($null -eq $settingsType.GetProperty($name)) { throw "AppSettings property missing: $name" }
 }
+if (-not $settingsProbe.AnimationsEnabled) { throw 'animations should be enabled by default' }
+$settingsProbe.AnimationsEnabled = $false
+$settingsClone = $settingsProbe.Clone()
+if ($settingsClone.AnimationsEnabled) { throw 'animations setting was not cloned' }
+$settingsProbe.AnimationsEnabled = $true
 $paletteType = $assembly.GetType('ThemePalette')
 if ($null -eq $paletteType.GetMethod('Create')) { throw 'ThemePalette factory is missing' }
 
@@ -46,6 +51,8 @@ $windowType = $assembly.GetType('UsageWindow')
 $windowCtor = $windowType.GetConstructor([Type[]]@([int], [double], [Nullable[DateTimeOffset]]))
 $window = $windowCtor.Invoke([object[]]@(18000, 150.0, $null))
 if ($window.UsedPercent -ne 100.0 -or $window.LimitWindowSeconds -ne 18000 -or $window.DisplayName -notmatch '5') { throw 'UsageWindow normalization failed' }
+$nonFiniteWindow = $windowCtor.Invoke([object[]]@(18000, [double]::NaN, $null))
+if ([double]::IsNaN($nonFiniteWindow.UsedPercent) -or [double]::IsInfinity($nonFiniteWindow.UsedPercent)) { throw 'UsageWindow accepted a non-finite percentage' }
 $sanitizerType = $assembly.GetType('DiagnosticSanitizer')
 $planMethod = $sanitizerType.GetMethod('PlanName')
 if ($planMethod.Invoke($null, @('GPT Pro')) -cne 'GPT Pro') { throw 'GPT Pro plan was incorrectly collapsed' }
@@ -122,6 +129,8 @@ $details.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))
 if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 400) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
+$animationsField = $settingsFormType.GetField('animationsCheck', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $animationsField -or -not $animationsField.GetValue($settingsForm).Checked) { throw 'SettingsForm animations option is missing or not enabled by default' }
 $settingsForm.Dispose()
 $diagnosticsType = $assembly.GetType('DiagnosticsService')
 $diagnostics = [Activator]::CreateInstance($diagnosticsType)

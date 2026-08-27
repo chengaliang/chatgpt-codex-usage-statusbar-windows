@@ -68,7 +68,7 @@ internal sealed class UpdateCheckResult
 /// </summary>
 internal sealed class UpdateService : IDisposable
 {
-    public const string CurrentVersion = "0.6.0";
+    public const string CurrentVersion = "0.7.0";
     private const string ReleaseEndpoint = "https://api.github.com/repos/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/latest";
     private const string ExpectedAssetName = "SubscriptionStatus.exe";
     private readonly HttpClient client;
