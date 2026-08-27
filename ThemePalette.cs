@@ -18,6 +18,7 @@ internal sealed class ThemePalette
     public Color ButtonIcon { get; private set; }
     public Color Success { get; private set; }
     public Color Warning { get; private set; }
+    public Color Error { get; private set; }
     public Color PrimaryAccent { get; private set; }
     public Color SecondaryAccent { get; private set; }
     public Color Surface { get; private set; }
@@ -51,6 +52,7 @@ internal sealed class ThemePalette
                     ButtonIcon = Color.FromArgb(65, 83, 103),
                     Success = Color.FromArgb(31, 133, 79),
                     Warning = Color.FromArgb(183, 103, 17),
+                    Error = Color.FromArgb(185, 58, 52),
                     PrimaryAccent = Color.FromArgb(27, 146, 92),
                     SecondaryAccent = Color.FromArgb(36, 119, 188),
                     Surface = Color.FromArgb(255, 255, 255),
@@ -72,6 +74,7 @@ internal sealed class ThemePalette
                     ButtonIcon = Color.FromArgb(211, 220, 231),
                     Success = Color.FromArgb(137, 218, 114),
                     Warning = Color.FromArgb(255, 188, 91),
+                    Error = Color.FromArgb(255, 123, 123),
                     PrimaryAccent = Color.FromArgb(112, 207, 138),
                     SecondaryAccent = Color.FromArgb(115, 190, 237),
                     Surface = Color.FromArgb(50, 56, 64),
@@ -93,6 +96,7 @@ internal sealed class ThemePalette
                     ButtonIcon = Color.FromArgb(171, 182, 196),
                     Success = Color.FromArgb(165, 255, 117),
                     Warning = Color.FromArgb(255, 190, 96),
+                    Error = Color.FromArgb(255, 119, 119),
                     PrimaryAccent = Color.FromArgb(165, 255, 117),
                     SecondaryAccent = Color.FromArgb(111, 196, 255),
                     Surface = Color.FromArgb(35, 42, 53),

@@ -11,7 +11,8 @@
 
 - Provider/统一快照状态、动态计划白名单和失败保留缓存
 - 缓存往返、损坏备份、清理、历史去重与敏感字段扫描
-- 详情/设置窗口的 `ShowInTaskbar=false` 与 `AutoScaleMode=Dpi`
+- 详情/设置/诊断中心窗口的 `ShowInTaskbar=false` 与 `AutoScaleMode=Dpi`
+- 诊断检查项、下一步建议、安全摘要复制和动态布局
 - GitHub 更新服务版本元数据和 SHA-256 正负样本
 
 在仓库根目录编译后运行：

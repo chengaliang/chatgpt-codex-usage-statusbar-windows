@@ -132,6 +132,26 @@ $historyMarker = ([char]0x5386).ToString() + ([char]0x53f2).ToString() + ([char]
 $updateMarker = ([char]0x542f).ToString() + ([char]0x52a8).ToString() + ([char]0x66f4).ToString() + ([char]0x65b0).ToString() + ([char]0x68c0).ToString() + ([char]0x67e5).ToString() + ([char]0xff1a).ToString() + ([char]0x5df2).ToString() + ([char]0x5173).ToString() + ([char]0x95ed).ToString()
 if ($report -notmatch [regex]::Escape($themeMarker) -or $report -notmatch [regex]::Escape($historyMarker) -or $report -notmatch [regex]::Escape($updateMarker)) { throw 'Diagnostics report did not include normalized startup/history settings' }
 
+$checkStatusType = $assembly.GetType('DiagnosticCheckStatus')
+$checkType = $assembly.GetType('DiagnosticCheck')
+$diagnosticSnapshotType = $assembly.GetType('DiagnosticSnapshot')
+$diagnosticFormType = $assembly.GetType('DiagnosticsForm')
+if ($null -eq $checkStatusType -or $null -eq $checkType -or $null -eq $diagnosticSnapshotType -or $null -eq $diagnosticFormType) { throw 'Diagnostics center types are missing' }
+$checks = $diagnosticsType.GetMethod('BuildChecks').Invoke($diagnostics, [object[]]@($loadingSnapshot, 'oauth-readable', 'system-network', $true, $false, $settingsProbe))
+if ($checks.Count -lt 5) { throw 'Diagnostics center returned too few checks' }
+$checksText = $checks | ConvertTo-Json -Depth 5
+if ($checksText -match 'secret-plan-value|secret-account-value|access_token|account_id') { throw 'Diagnostics checks leaked sensitive test values' }
+$diagnosticFormConstructor = $diagnosticFormType.GetConstructors([Reflection.BindingFlags]'Public,NonPublic,Instance') |
+    Where-Object { $_.GetParameters().Count -eq 4 } |
+    Select-Object -First 1
+if ($null -eq $diagnosticFormConstructor) { throw 'DiagnosticsForm constructor is missing' }
+$diagnosticForm = $diagnosticFormConstructor.Invoke([object[]]@([string]$report, $checks, $null, [Enum]::ToObject($themeType, 0)))
+if ($diagnosticForm.ShowInTaskbar -or $diagnosticForm.AutoScaleMode.ToString() -ne 'Dpi') { throw 'DiagnosticsForm window flags or DPI mode are invalid' }
+$diagnosticSnapshot = [Activator]::CreateInstance($diagnosticSnapshotType, [object[]]@([string]$report, $checks))
+$diagnosticForm.UpdateSnapshot($diagnosticSnapshot)
+if ($diagnosticForm.Controls.Count -eq 0) { throw 'DiagnosticsForm did not build its control layout' }
+$diagnosticForm.Dispose()
+
 $updateType = $assembly.GetType('UpdateService')
 if ($null -eq $updateType) { throw 'UpdateService type is missing' }
 $currentVersionField = $updateType.GetField('CurrentVersion')

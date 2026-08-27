@@ -756,7 +756,7 @@ internal sealed class StatusWindow : Form
             }
         };
 
-        ToolStripMenuItem diagnosticsItem = new ToolStripMenuItem("运行诊断");
+        ToolStripMenuItem diagnosticsItem = new ToolStripMenuItem("诊断中心");
         diagnosticsItem.Click += RunDiagnostics;
 
         ToolStripMenuItem settingsItem = new ToolStripMenuItem("设置");
@@ -1297,13 +1297,28 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private string BuildDiagnosticReport()
     {
-        return diagnosticsService.Build(
+        return BuildDiagnosticSnapshot().Report;
+    }
+
+    private DiagnosticSnapshot BuildDiagnosticSnapshot()
+    {
+        string credentialDiagnostic = usageProvider.GetCredentialDiagnostic();
+        string networkDiagnostic = usageProvider.GetNetworkDiagnostic();
+        string report = diagnosticsService.Build(
             snapshot,
-            usageProvider.GetCredentialDiagnostic(),
-            usageProvider.GetNetworkDiagnostic(),
+            credentialDiagnostic,
+            networkDiagnostic,
             autoStartEnabled,
             !string.IsNullOrWhiteSpace(autoStartError),
             settings);
+        IList<DiagnosticCheck> checks = diagnosticsService.BuildChecks(
+            snapshot,
+            credentialDiagnostic,
+            networkDiagnostic,
+            autoStartEnabled,
+            !string.IsNullOrWhiteSpace(autoStartError),
+            settings);
+        return new DiagnosticSnapshot(report, checks);
     }
 
     private async void RunDiagnostics(object sender, EventArgs e)
@@ -1317,7 +1332,21 @@ internal sealed class StatusWindow : Form
 
     private void ShowDiagnosticReport()
     {
-        MessageBox.Show(this, BuildDiagnosticReport(), "诊断信息", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        DiagnosticSnapshot initialSnapshot = BuildDiagnosticSnapshot();
+        using (DiagnosticsForm form = new DiagnosticsForm(
+            initialSnapshot.Report,
+            initialSnapshot.Checks,
+            RefreshDiagnosticsForFormAsync,
+            settings.Theme))
+        {
+            form.ShowDialog(this);
+        }
+    }
+
+    private async Task<DiagnosticSnapshot> RefreshDiagnosticsForFormAsync()
+    {
+        await RefreshQuotaSafelyAsync();
+        return BuildDiagnosticSnapshot();
     }
 
     private void CopyDiagnosticReport()
@@ -1329,7 +1358,7 @@ internal sealed class StatusWindow : Form
         }
         catch (Exception)
         {
-            MessageBox.Show(this, "无法访问剪贴板，请使用“运行诊断”查看信息。", "复制失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "无法访问剪贴板，请使用“诊断中心”查看信息。", "复制失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

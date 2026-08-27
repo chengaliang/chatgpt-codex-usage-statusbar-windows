@@ -8,7 +8,7 @@
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
-首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供立即刷新、额度详情、主题/透明度、运行诊断、复制脱敏诊断信息、清除本地缓存和检查更新，遇到问题可以直接把诊断摘要贴到 Issue。
+首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供立即刷新、额度详情、主题/透明度、诊断中心、复制脱敏诊断信息、清除本地缓存和检查更新，遇到问题可以直接把诊断摘要贴到 Issue。
 
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the UI at about 320×40 pixels.
 
@@ -34,7 +34,7 @@
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
 - **Tray-first workflow**: closing the bar hides it to the notification area instead of killing the process; double-click the tray icon to restore it, and use the tray menu to refresh, configure or exit.
 - **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, 7/30/90-day local history, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, startup delay and opt-in threshold notifications.
-- **Startup & diagnostics**: first launch enables current-user startup by default; optionally delay the first query or check for updates on startup (prompt only); right-click to toggle startup, run a fresh health check, copy a redacted issue report, clear local data, or inspect update metadata.
+- **Startup & diagnostics**: first launch enables current-user startup by default; optionally delay the first query or check for updates on startup (prompt only); the diagnostic center shows fixed checks, next actions and a safe copyable report.
 - **Safe updates**: manually checks GitHub Releases, accepts only GitHub HTTPS links, and exposes SHA-256 verification without silently replacing a running binary.
 - **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
 
@@ -129,7 +129,7 @@ Run [`start-statusbar.cmd`](start-statusbar.cmd) again or double-click the tray 
 
 ### Startup or diagnostics
 
-Right-click the bar to turn current-user startup on or off. **Run diagnostics** refreshes the official endpoint and shows only safe status details. **Copy diagnostic info** is redacted for issue reports and does not include tokens, account IDs, proxy addresses or full responses.
+Right-click the bar to turn current-user startup on or off. **诊断中心** refreshes the official endpoint, shows fixed health checks and next actions, and keeps the report safe to copy. It does not include tokens, account IDs, proxy addresses or full responses.
 
 ## 持续维护与反馈
 

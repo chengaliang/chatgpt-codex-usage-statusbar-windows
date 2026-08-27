@@ -65,7 +65,7 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(CreateItem("显示状态栏", delegate { showWindow(); }));
         menu.Items.Add(CreateItem("立即刷新", delegate { refresh(); }));
         menu.Items.Add(CreateItem("设置", delegate { showSettings(); }));
-        menu.Items.Add(CreateItem("运行诊断", runDiagnostics));
+        menu.Items.Add(CreateItem("诊断中心", runDiagnostics));
         menu.Items.Add(CreateItem("打开项目主页", delegate { openProject(); }));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateItem("退出", delegate { exitApplication(); }));
