@@ -539,6 +539,7 @@ internal sealed class StatusWindow : Form
     private const int WindowWidth = 320;
     private const int WindowHeight = 40;
     private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string SettingsRegistryPath = @"Software\ChatGPTCodexUsageStatusBar";
     private const string StartupValueName = "ChatGPTCodexUsageStatusBar";
     private const string StartupConfiguredValueName = "ChatGPTCodexUsageStatusBarConfigured";
     private const string ProjectUrl = "https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows";
@@ -617,29 +618,42 @@ internal sealed class StatusWindow : Form
     {
         try
         {
-            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
+            using (RegistryKey runKey = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
+            using (RegistryKey settingsKey = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath))
             {
-                if (key == null)
+                if (runKey == null || settingsKey == null)
                 {
                     autoStartError = "无法访问当前用户启动项";
                     return;
                 }
 
-                object configured = key.GetValue(StartupConfiguredValueName);
+                // 0.2.0 之前曾把配置标记误放在 Run 键，先迁移并删除它，避免 Windows 把“1”当成启动命令。
+                object legacyConfigured = runKey.GetValue(StartupConfiguredValueName);
+                object configured = settingsKey.GetValue(StartupConfiguredValueName);
+                if (configured == null && legacyConfigured != null)
+                {
+                    settingsKey.SetValue(StartupConfiguredValueName, legacyConfigured, RegistryValueKind.String);
+                    configured = legacyConfigured;
+                }
+                if (legacyConfigured != null)
+                {
+                    runKey.DeleteValue(StartupConfiguredValueName, false);
+                }
+
                 if (configured == null)
                 {
-                    key.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
-                    key.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
+                    runKey.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
+                    settingsKey.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
                     autoStartEnabled = true;
                     return;
                 }
 
-                string command = key.GetValue(StartupValueName) as string;
+                string command = runKey.GetValue(StartupValueName) as string;
                 autoStartEnabled = !string.IsNullOrWhiteSpace(command);
                 if (autoStartEnabled && !string.Equals(command, GetStartupCommand(), StringComparison.OrdinalIgnoreCase))
                 {
                     // 程序被移动后修复旧路径，避免开机启动指向不存在的文件。
-                    key.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
+                    runKey.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
                 }
             }
         }
@@ -663,9 +677,10 @@ internal sealed class StatusWindow : Form
     {
         try
         {
-            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
+            using (RegistryKey runKey = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
+            using (RegistryKey settingsKey = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath))
             {
-                if (key == null)
+                if (runKey == null || settingsKey == null)
                 {
                     autoStartError = "无法访问当前用户启动项";
                     return false;
@@ -673,14 +688,15 @@ internal sealed class StatusWindow : Form
 
                 if (enabled)
                 {
-                    key.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
+                    runKey.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
                 }
                 else
                 {
-                    key.DeleteValue(StartupValueName, false);
+                    runKey.DeleteValue(StartupValueName, false);
                 }
 
-                key.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
+                runKey.DeleteValue(StartupConfiguredValueName, false);
+                settingsKey.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
                 autoStartEnabled = enabled;
                 autoStartError = string.Empty;
                 return true;
