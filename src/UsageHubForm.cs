@@ -365,6 +365,10 @@ internal sealed class UsageHubForm : Form
                 IList<HistoryPoint> refreshedHistory = historyLoader == null ? history : historyLoader();
                 history = refreshedHistory == null ? new List<HistoryPoint>() : new List<HistoryPoint>(refreshedHistory);
                 surface.SetData(snapshot, history);
+                if (refreshed.Status == UsageStatus.Live)
+                {
+                    surface.PlayRefreshCelebration();
+                }
             }
         }
         catch (Exception)
@@ -402,6 +406,8 @@ internal sealed class UsageHubSurface : Control
     private float phase;
     private float entrance;
     private bool refreshing;
+    private float refreshBurstProgress;
+    private bool refreshBurstActive;
 
     public UsageHubSurface(ThemePalette palette, bool animationsEnabled)
     {
@@ -453,6 +459,23 @@ internal sealed class UsageHubSurface : Control
         Invalidate();
     }
 
+    /// <summary>
+    /// 播放一次成功刷新后的工作区脉冲。只有在线结果调用该方法，动画结束后自动回收为静态状态。
+    /// </summary>
+    public void PlayRefreshCelebration()
+    {
+        if (!animationsEnabled)
+        {
+            refreshBurstActive = false;
+            refreshBurstProgress = 0f;
+            return;
+        }
+
+        refreshBurstProgress = 0f;
+        refreshBurstActive = true;
+        Invalidate();
+    }
+
     public void AdvanceAnimation()
     {
         if (!animationsEnabled)
@@ -470,6 +493,14 @@ internal sealed class UsageHubSurface : Control
         entrance = Math.Min(1f, entrance + 0.08f);
         primaryAnimated = Step(primaryAnimated, primaryTarget);
         secondaryAnimated = Step(secondaryAnimated, secondaryTarget);
+        if (refreshBurstActive)
+        {
+            refreshBurstProgress = Math.Min(1f, refreshBurstProgress + 0.075f);
+            if (refreshBurstProgress >= 1f)
+            {
+                refreshBurstActive = false;
+            }
+        }
         Invalidate();
     }
 
@@ -522,6 +553,33 @@ internal sealed class UsageHubSurface : Control
             using (Pen sweep = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, refreshing ? 115 : 48), 1f))
             {
                 g.DrawLine(sweep, sweepX, 18, sweepX, Height - 78);
+            }
+        }
+
+        DrawRefreshBurst(g);
+    }
+
+    /// <summary>
+    /// 绘制从左到右穿过工作区的刷新能量带。它只服务于一次成功刷新，不与持续待机扫描混淆。
+    /// </summary>
+    private void DrawRefreshBurst(Graphics g)
+    {
+        if (!animationsEnabled || !refreshBurstActive)
+        {
+            return;
+        }
+
+        float progress = Math.Max(0f, Math.Min(1f, refreshBurstProgress));
+        float eased = 1f - (float)Math.Pow(1f - progress, 3d);
+        float fade = 1f - progress;
+        float sweepX = 24f + (Width - 48f) * eased;
+        for (int trail = 0; trail < 5; trail++)
+        {
+            float x = sweepX - trail * 11f;
+            int alpha = Math.Max(0, (int)Math.Round((70f - trail * 11f) * fade));
+            using (Pen beam = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, alpha), 1f + trail * 0.35f))
+            {
+                g.DrawLine(beam, x, 92 + trail * 3, x, Height - 92 - trail * 3);
             }
         }
     }
@@ -581,6 +639,8 @@ internal sealed class UsageHubSurface : Control
             g.DrawPath(cardBorder, cardPath);
         }
 
+        DrawRefreshCardPulse(g, bounds, accent);
+
         using (SolidBrush badgeBrush = new SolidBrush(UiTheme.WithAlpha(accent, 34)))
         using (GraphicsPath badgePath = RoundedRectangle(new Rectangle(bounds.Left + 18, bounds.Top + 17, 72, 22), 11))
         {
@@ -617,6 +677,14 @@ internal sealed class UsageHubSurface : Control
                     g.DrawArc(scan, ring, -90f + phase * 24f, 20f);
                 }
             }
+            else if (refreshBurstActive && animationsEnabled)
+            {
+                int scanAlpha = Math.Max(0, (int)Math.Round(185f * (1f - refreshBurstProgress)));
+                using (Pen scan = new Pen(UiTheme.WithAlpha(Color.White, scanAlpha), 2.5f))
+                {
+                    g.DrawArc(scan, ring, -90f + refreshBurstProgress * 330f, 28f);
+                }
+            }
         }
 
         string percentage = window == null ? "--" : window.UsedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
@@ -641,6 +709,25 @@ internal sealed class UsageHubSurface : Control
         if (insight != null && insight.ProjectedExhaustionAt.HasValue)
         {
             DrawText(g, "预计 " + FormatForecast(insight.ProjectedExhaustionAt), "Microsoft YaHei UI", 7.5f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 176);
+        }
+    }
+
+    private void DrawRefreshCardPulse(Graphics g, Rectangle bounds, Color accent)
+    {
+        if (!animationsEnabled || !refreshBurstActive)
+        {
+            return;
+        }
+
+        float progress = Math.Max(0f, Math.Min(1f, refreshBurstProgress));
+        float fade = 1f - progress;
+        int spread = 2 + (int)Math.Round(progress * 8f);
+        int alpha = Math.Max(0, (int)Math.Round(150f * fade));
+        Rectangle pulseBounds = Rectangle.Inflate(bounds, spread, spread);
+        using (GraphicsPath pulsePath = RoundedRectangle(pulseBounds, 14 + spread))
+        using (Pen pulse = new Pen(UiTheme.WithAlpha(accent, alpha), 1.5f))
+        {
+            g.DrawPath(pulse, pulsePath);
         }
     }
 

@@ -4,7 +4,7 @@
 
 ## 中文概览
 
-这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、状态呼吸、扫描线和额度风险色反馈，并可按本地历史估算消耗速度与预计耗尽时间。主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
+这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、状态呼吸、扫描线和额度风险色反馈；每次成功在线刷新后还会播放一次短促的同步脉冲，让数据换新有明确反馈，并可按本地历史估算消耗速度与预计耗尽时间。主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
@@ -38,6 +38,7 @@
 - **Shortcuts and reminders**: use `Ctrl+Alt+U` to open the Hub, `Ctrl+C` to copy its safe diagnostic summary and `Ctrl+E` to export history; reset and two-hour forecast reminders are opt-in and de-duplicated per quota cycle.
 - **Local maintenance**: export only window seconds, percentages and timestamps to a CSV under the app data directory; the context menu can open that directory, and clearing local data removes matching exports too.
 - **Motion with purpose**: the mini bar uses a living status pulse and progress sweep; Usage Hub animates its entrance, rings, trend points and refresh state without changing the displayed percentage.
+- **Refresh celebration**: every successful live quota refresh plays one short sync burst across the mini bar and Usage Hub, with a moving energy beam, status spark and ring sweep; cached or failed refreshes stay quiet.
 - **Startup & diagnostics**: first launch enables current-user startup by default; optionally delay the first query or check for updates on startup (prompt only); the diagnostic center shows fixed checks, next actions and a safe copyable report.
 - **Diagnostics with context**: the report records local history sample count, forecast availability, hotkey registration conflicts and reminder settings without exposing paths or credentials.
 - **Safe updates**: manually checks GitHub Releases, accepts only GitHub HTTPS links, and exposes SHA-256 verification without silently replacing a running binary.

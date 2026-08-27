@@ -170,9 +170,31 @@ $details.Dispose()
 $hubType = $assembly.GetType('UsageHubForm')
 $hubSurfaceType = $assembly.GetType('UsageHubSurface')
 if ($null -eq $hubType -or $null -eq $hubSurfaceType) { throw 'Usage Hub presentation types are missing' }
-foreach ($name in @('SetData', 'BeginEntrance', 'AdvanceAnimation', 'SetRefreshing')) {
+foreach ($name in @('SetData', 'BeginEntrance', 'AdvanceAnimation', 'SetRefreshing', 'PlayRefreshCelebration')) {
     if ($null -eq $hubSurfaceType.GetMethod($name)) { throw "UsageHubSurface method missing: $name" }
 }
+$statusWindowType = $assembly.GetType('StatusWindow')
+if ($null -eq $statusWindowType.GetMethod('BeginRefreshCelebration', [Reflection.BindingFlags]'NonPublic,Instance')) {
+    throw 'StatusWindow refresh celebration entry is missing'
+}
+$palette = $paletteType.GetMethod('Create').Invoke($null, [object[]]@([Enum]::Parse($themeType, 'Dark')))
+$hubSurfaceConstructor = $hubSurfaceType.GetConstructor([Type[]]@($paletteType, [bool]))
+if ($null -eq $hubSurfaceConstructor) { throw 'UsageHubSurface constructor is missing' }
+$hubSurface = $hubSurfaceConstructor.Invoke([object[]]@($palette, $true))
+$burstActiveField = $hubSurfaceType.GetField('refreshBurstActive', [Reflection.BindingFlags]'NonPublic,Instance')
+$burstProgressField = $hubSurfaceType.GetField('refreshBurstProgress', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $burstActiveField -or $null -eq $burstProgressField) { throw 'UsageHub refresh burst state is missing' }
+$hubSurface.PlayRefreshCelebration()
+if (-not [bool]$burstActiveField.GetValue($hubSurface)) { throw 'refresh celebration did not start after a live refresh' }
+for ($frame = 0; $frame -lt 20; $frame++) { $hubSurface.AdvanceAnimation() }
+if ([bool]$burstActiveField.GetValue($hubSurface) -or [float]$burstProgressField.GetValue($hubSurface) -lt 0.99) {
+    throw 'refresh celebration did not finish as a one-shot animation'
+}
+$hubSurface.Dispose()
+$staticHubSurface = $hubSurfaceConstructor.Invoke([object[]]@($palette, $false))
+$staticHubSurface.PlayRefreshCelebration()
+if ([bool]$burstActiveField.GetValue($staticHubSurface)) { throw 'disabled animations should not start refresh celebration' }
+$staticHubSurface.Dispose()
 $hubConstructor = $hubType.GetConstructors([Reflection.BindingFlags]'Public,NonPublic,Instance') |
     Where-Object { $_.GetParameters().Count -eq 4 } |
     Select-Object -First 1

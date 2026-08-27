@@ -629,6 +629,8 @@ internal sealed class StatusWindow : Form
     private float visualPhase;
     private int refreshRotation;
     private bool visualAnimationActive;
+    private float refreshCelebrationProgress;
+    private bool refreshCelebrationActive;
     private Point mouseDownLocation;
     private bool draggingBar;
 
@@ -1446,6 +1448,8 @@ internal sealed class StatusWindow : Form
                 shouldInvalidate = true;
             }
             visualAnimationActive = false;
+            refreshCelebrationActive = false;
+            refreshCelebrationProgress = 0f;
         }
         else if (visualAnimationActive)
         {
@@ -1466,6 +1470,15 @@ internal sealed class StatusWindow : Form
             if (isRefreshing)
             {
                 refreshRotation = (refreshRotation + 18) % 360;
+            }
+
+            if (refreshCelebrationActive)
+            {
+                refreshCelebrationProgress = Math.Min(1f, refreshCelebrationProgress + 0.06f);
+                if (refreshCelebrationProgress >= 1f)
+                {
+                    refreshCelebrationActive = false;
+                }
             }
 
             // 保持低频的待机呼吸和高光扫描，让状态栏在不刷新时也有明确的生命感；隐藏到托盘时会停止计时器。
@@ -1521,6 +1534,7 @@ internal sealed class StatusWindow : Form
             usageSnapshot = result;
             snapshot = result.ToQuotaSnapshot();
             UpdateVisualTargets(true);
+            BeginRefreshCelebration();
             string cacheError;
             usageCache.TrySave(result, out cacheError);
             historyStore.Append(result);
@@ -1557,6 +1571,25 @@ internal sealed class StatusWindow : Form
         usageSnapshot = UsageSnapshot.Failure("chatgpt-codex", status, errorCode, queriedAt);
         snapshot = usageSnapshot.ToQuotaSnapshot();
         UpdateVisualTargets(true);
+    }
+
+    /// <summary>
+    /// 标记一次在线额度刷新成功。调用点位于统一结果入口，因此手动刷新、定时刷新和 Hub 刷新
+    /// 都只会各自触发一次；缓存或失败结果不会伪装成成功庆祝。
+    /// </summary>
+    private void BeginRefreshCelebration()
+    {
+        if (!settings.AnimationsEnabled)
+        {
+            refreshCelebrationActive = false;
+            refreshCelebrationProgress = 0f;
+            return;
+        }
+
+        refreshCelebrationProgress = 0f;
+        refreshCelebrationActive = true;
+        visualAnimationActive = true;
+        UpdateVisualTimerInterval();
     }
 
     private void EvaluateNotifications(QuotaSnapshot result)
@@ -1911,6 +1944,8 @@ internal sealed class StatusWindow : Form
             g.DrawLine(topLine, 10, 1, WindowWidth - 10, 1);
         }
 
+        DrawRefreshCelebration(g);
+
         if (settings.AnimationsEnabled)
         {
             int sweepX = 8 + (int)((WindowWidth - 16) * ((Math.Sin(visualPhase * 0.55d) + 1d) / 2d));
@@ -1961,6 +1996,59 @@ internal sealed class StatusWindow : Form
 
         DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 9f, FontStyle.Bold, themePalette.PrimaryText, 23, 8);
         DrawText(g, "USAGE", "Consolas", 5.5f, FontStyle.Bold, themePalette.SecondaryText, 23, 29);
+    }
+
+    /// <summary>
+    /// 绘制一次成功刷新后的同步脉冲。扫描线和星芒只在本次在线额度返回后短暂出现，
+    /// 让用户能明确感知“数据已经换新”，但不改变任何真实数字或状态颜色。
+    /// </summary>
+    private void DrawRefreshCelebration(Graphics g)
+    {
+        if (!settings.AnimationsEnabled || !refreshCelebrationActive)
+        {
+            return;
+        }
+
+        float progress = Math.Max(0f, Math.Min(1f, refreshCelebrationProgress));
+        float eased = 1f - (float)Math.Pow(1f - progress, 3d);
+        float fade = 1f - progress;
+        float sweepX = 12f + (WindowWidth - 24f) * eased;
+        for (int trail = 0; trail < 4; trail++)
+        {
+            float x = sweepX - trail * 8f;
+            int alpha = Math.Max(0, (int)Math.Round((78f - trail * 16f) * fade));
+            using (Pen beam = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, alpha), 1f + trail * 0.35f))
+            {
+                g.DrawLine(beam, x, 4 + trail, x, WindowHeight - 5 - trail);
+            }
+        }
+
+        float centerX = 282f;
+        float centerY = 20f;
+        float radius = 8f + progress * 13f;
+        int ringAlpha = Math.Max(0, (int)Math.Round(155f * fade));
+        using (Pen ring = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, ringAlpha), 1.4f))
+        {
+            g.DrawEllipse(ring, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
+        }
+
+        int rayAlpha = Math.Max(0, (int)Math.Round(190f * fade));
+        using (Pen rays = new Pen(UiTheme.WithAlpha(themePalette.PrimaryAccent, rayAlpha), 1.1f))
+        {
+            rays.StartCap = LineCap.Round;
+            rays.EndCap = LineCap.Round;
+            for (int index = 0; index < 8; index++)
+            {
+                double angle = index * Math.PI / 4d + progress * Math.PI * 0.75d;
+                float inner = radius + 3f;
+                float outer = inner + 3f + 3f * fade;
+                float x1 = centerX + (float)Math.Cos(angle) * inner;
+                float y1 = centerY + (float)Math.Sin(angle) * inner;
+                float x2 = centerX + (float)Math.Cos(angle) * outer;
+                float y2 = centerY + (float)Math.Sin(angle) * outer;
+                g.DrawLine(rays, x1, y1, x2, y2);
+            }
+        }
     }
 
     private string CompactPlanName()
