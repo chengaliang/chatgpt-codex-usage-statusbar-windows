@@ -127,7 +127,7 @@ Choose **检查更新** from the bar's right-click menu. The app reads the lates
 - Update checks query public GitHub Release metadata only; the app does not auto-download or replace a running executable.
 - The usage endpoint is a ChatGPT/Codex backend contract used by compatible clients and may change without notice. This project is not affiliated with OpenAI.
 
-Read the step-by-step Chinese tutorial in [`docs/QUICKSTART.zh-CN.md`](docs/QUICKSTART.zh-CN.md).
+For a friendly end-user walkthrough, read the [中文用户操作手册](docs/USER-GUIDE.zh-CN.md). The [中文快速开始与开发说明](docs/QUICKSTART.zh-CN.md) covers source builds and deeper troubleshooting.
 
 ## Troubleshooting
 
