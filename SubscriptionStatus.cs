@@ -603,6 +603,7 @@ internal sealed class StatusWindow : Form
     private readonly UsageCache usageCache;
     private readonly HistoryStore historyStore;
     private readonly UpdateService updateService;
+    private readonly GlobalHotkey globalHotkey;
     private ThemePalette themePalette;
     private ToolStripMenuItem autoStartMenuItem;
     private readonly IList<ToolStripMenuItem> refreshIntervalItems = new List<ToolStripMenuItem>();
@@ -615,6 +616,8 @@ internal sealed class StatusWindow : Form
     private string autoStartError;
     private bool exitRequested;
     private bool startupUpdateCheckCompleted;
+    private bool globalHotkeyRegistrationFailed;
+    private UsageHubForm usageHubForm;
     private Task refreshInFlight;
     private Task updateCheckInFlight;
     private readonly System.Windows.Forms.Timer visualTimer;
@@ -711,6 +714,21 @@ internal sealed class StatusWindow : Form
         toolTip.AutoPopDelay = 8000;
         toolTip.InitialDelay = 350;
         toolTip.ReshowDelay = 100;
+        globalHotkey = new GlobalHotkey(delegate
+        {
+            // WM_HOTKEY 位于消息循环内，投递异步消息避免在 NativeWindow 回调中嵌套 ShowDialog。
+            if (!IsDisposed && IsHandleCreated)
+            {
+                try
+                {
+                    BeginInvoke((MethodInvoker)delegate { ShowUsageHub(); });
+                }
+                catch (InvalidOperationException)
+                {
+                    // 主窗口正在销毁时，异步投递可能失去句柄；此时无需再次打开工作区。
+                }
+            }
+        });
         toolTip.SetToolTip(this, BuildTooltipText());
 
         refreshScheduler = new RefreshScheduler(settings.RefreshIntervalMinutes, RefreshQuotaSafelyAsync);
@@ -795,8 +813,17 @@ internal sealed class StatusWindow : Form
         ToolStripMenuItem copyDiagnosticsItem = new ToolStripMenuItem("复制诊断信息");
         copyDiagnosticsItem.Click += delegate(object sender, EventArgs args) { CopyDiagnosticReport(); };
 
-        ToolStripMenuItem clearDataItem = new ToolStripMenuItem("清除本地缓存与历史");
-        clearDataItem.Click += delegate(object sender, EventArgs args) { ClearLocalData(); };
+        ToolStripMenuItem exportHistoryItem = new ToolStripMenuItem("导出本地趋势");
+        exportHistoryItem.Click += delegate(object sender, EventArgs args) { ExportHistoryCsv(); };
+
+        ToolStripMenuItem dataFolderItem = new ToolStripMenuItem("打开数据目录");
+        dataFolderItem.Click += delegate(object sender, EventArgs args) { OpenDataFolder(); };
+
+        ToolStripMenuItem clearHistoryItem = new ToolStripMenuItem("清除趋势历史与导出");
+        clearHistoryItem.Click += delegate(object sender, EventArgs args) { ClearHistoryData(); };
+
+        ToolStripMenuItem clearCacheItem = new ToolStripMenuItem("清除最近成功缓存");
+        clearCacheItem.Click += delegate(object sender, EventArgs args) { ClearCacheData(); };
 
         ToolStripMenuItem projectItem = new ToolStripMenuItem("打开项目主页");
         projectItem.Click += delegate(object sender, EventArgs args) { OpenProjectPage(); };
@@ -820,7 +847,10 @@ internal sealed class StatusWindow : Form
         menu.Items.Add(settingsItem);
         menu.Items.Add(diagnosticsItem);
         menu.Items.Add(copyDiagnosticsItem);
-        menu.Items.Add(clearDataItem);
+        menu.Items.Add(exportHistoryItem);
+        menu.Items.Add(dataFolderItem);
+        menu.Items.Add(clearHistoryItem);
+        menu.Items.Add(clearCacheItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(projectItem);
         menu.Items.Add(updateItem);
@@ -855,6 +885,8 @@ internal sealed class StatusWindow : Form
                 visualAnimationActive = true;
                 UpdateVisualTimerInterval();
             }
+            ApplyGlobalHotkey();
+            toolTip.SetToolTip(this, BuildTooltipText());
             if (settings.LaunchDelaySeconds > 0)
             {
                 // 开机自启时允许代理、网络和 Codex CLI 完成初始化，同时先保留可用的缓存画面。
@@ -900,6 +932,10 @@ internal sealed class StatusWindow : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (exitRequested && usageHubForm != null && !usageHubForm.IsDisposed)
+        {
+            usageHubForm.Close();
+        }
         if (!exitRequested && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
@@ -920,6 +956,7 @@ internal sealed class StatusWindow : Form
         cancellation.Cancel();
         usageProvider.Dispose();
         updateService.Dispose();
+        globalHotkey.Dispose();
         cancellation.Dispose();
         toolTip.Dispose();
         contextMenu.Dispose();
@@ -989,6 +1026,20 @@ internal sealed class StatusWindow : Form
         Close();
     }
 
+    /// <summary>
+    /// 根据本地偏好注册或释放全局快捷键。注册失败只保留诊断状态，不影响托盘和手动入口。
+    /// </summary>
+    private void ApplyGlobalHotkey()
+    {
+        if (settings.GlobalHotkeyEnabled)
+        {
+            globalHotkeyRegistrationFailed = !globalHotkey.TryRegister();
+            return;
+        }
+        globalHotkey.Unregister();
+        globalHotkeyRegistrationFailed = false;
+    }
+
     private async void RefreshFromTray()
     {
         await RefreshQuotaSafelyAsync();
@@ -999,7 +1050,17 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private void ShowUsageHub()
     {
-        using (UsageHubForm form = new UsageHubForm(
+        if (usageHubForm != null && !usageHubForm.IsDisposed)
+        {
+            if (usageHubForm.WindowState == FormWindowState.Minimized)
+            {
+                usageHubForm.WindowState = FormWindowState.Normal;
+            }
+            usageHubForm.Activate();
+            return;
+        }
+
+        UsageHubForm form = new UsageHubForm(
             usageSnapshot,
             historyStore.Load(),
             RefreshForDetailsAsync,
@@ -1007,10 +1068,22 @@ internal sealed class StatusWindow : Form
             ShowSettings,
             ShowDiagnosticReport,
             OpenProjectPage,
+            CopyDiagnosticReport,
+            ExportHistoryCsv,
             settings.Theme,
-            settings.AnimationsEnabled))
+            settings.AnimationsEnabled);
+        usageHubForm = form;
+        try
         {
             form.ShowDialog(this);
+        }
+        finally
+        {
+            if (ReferenceEquals(usageHubForm, form))
+            {
+                usageHubForm = null;
+            }
+            form.Dispose();
         }
     }
 
@@ -1070,6 +1143,7 @@ internal sealed class StatusWindow : Form
             ApplyTheme();
             UiTheme.StyleMenu(contextMenu, themePalette);
             trayController.ApplyTheme(themePalette);
+            ApplyGlobalHotkey();
             SaveSettings();
             toolTip.SetToolTip(this, BuildTooltipText());
             trayController.SetStatus(BuildTrayStatus());
@@ -1090,6 +1164,9 @@ internal sealed class StatusWindow : Form
         settings.NotificationThresholdPercent = source.NotificationThresholdPercent;
         settings.RestorePosition = source.RestorePosition;
         settings.AnimationsEnabled = source.AnimationsEnabled;
+        settings.GlobalHotkeyEnabled = source.GlobalHotkeyEnabled;
+        settings.ResetNotificationsEnabled = source.ResetNotificationsEnabled;
+        settings.ForecastNotificationsEnabled = source.ForecastNotificationsEnabled;
         settings.HasSavedPosition = source.HasSavedPosition;
         settings.PositionX = source.PositionX;
         settings.PositionY = source.PositionY;
@@ -1484,17 +1561,65 @@ internal sealed class StatusWindow : Form
 
     private void EvaluateNotifications(QuotaSnapshot result)
     {
-        IList<UsageNotification> notifications = notificationEvaluator.Evaluate(
+        IList<HistoryPoint> history = historyStore.Load();
+        IList<UsageInsight> insights = UsageInsights.Build(usageSnapshot, history, DateTimeOffset.UtcNow);
+        IList<UsageNotification> notifications = notificationEvaluator.EvaluateWithInsights(
             result,
-            settings.NotificationThresholdPercent);
+            settings.NotificationThresholdPercent,
+            settings.ResetNotificationsEnabled,
+            settings.ForecastNotificationsEnabled,
+            insights);
         if (!settings.NotificationsEnabled)
         {
             return;
         }
 
-        foreach (UsageNotification notification in notifications)
+        if (notifications == null || notifications.Count == 0)
         {
-            trayController.ShowNotification(notification.Title, notification.Message);
+            return;
+        }
+
+        if (notifications.Count == 1)
+        {
+            ShowNotificationSafely(notifications[0].Title, notifications[0].Message);
+            return;
+        }
+
+        // 同一刷新可能同时跨过阈值、进入新周期并命中预测；合并成一个气泡，避免 NotifyIcon 后一条覆盖前一条。
+        StringBuilder combined = new StringBuilder("本次刷新有 ");
+        combined.Append(notifications.Count.ToString(CultureInfo.InvariantCulture));
+        combined.AppendLine(" 项提醒");
+        for (int index = 0; index < notifications.Count; index++)
+        {
+            if (index > 0)
+            {
+                combined.AppendLine();
+            }
+            combined.Append("· ");
+            combined.Append(notifications[index].Message);
+        }
+        ShowNotificationSafely("额度状态更新", combined.ToString());
+    }
+
+    /// <summary>
+    /// 通知图标属于可选的桌面能力。系统策略、托盘重建或退出竞态导致通知失败时，不能把已经成功取得的额度标记为刷新失败。
+    /// </summary>
+    private void ShowNotificationSafely(string title, string message)
+    {
+        try
+        {
+            trayController.ShowNotification(title, message);
+        }
+        catch (Exception)
+        {
+            try
+            {
+                toolTip.SetToolTip(this, "通知暂不可用，状态栏仍可继续使用");
+            }
+            catch (Exception)
+            {
+                // Tooltip 也可能在窗口销毁竞态中不可用，此时静默保留主刷新结果。
+            }
         }
     }
 
@@ -1510,20 +1635,47 @@ internal sealed class StatusWindow : Form
     {
         string credentialDiagnostic = usageProvider.GetCredentialDiagnostic();
         string networkDiagnostic = usageProvider.GetNetworkDiagnostic();
-        string report = diagnosticsService.Build(
+        IList<HistoryPoint> history = historyStore.Load();
+        IList<UsageInsight> insights = UsageInsights.Build(usageSnapshot, history, DateTimeOffset.UtcNow);
+        bool forecastAvailable = false;
+        foreach (UsageInsight insight in insights)
+        {
+            if (insight != null && insight.ProjectedExhaustionAt.HasValue)
+            {
+                forecastAvailable = true;
+                break;
+            }
+        }
+        string report = diagnosticsService.BuildExtended(
             snapshot,
             credentialDiagnostic,
             networkDiagnostic,
             autoStartEnabled,
             !string.IsNullOrWhiteSpace(autoStartError),
-            settings);
-        IList<DiagnosticCheck> checks = diagnosticsService.BuildChecks(
+            settings,
+            history.Count,
+            forecastAvailable,
+            settings.GlobalHotkeyEnabled,
+            globalHotkey.IsRegistered,
+            settings.ResetNotificationsEnabled,
+            settings.ForecastNotificationsEnabled,
+            snapshot == null ? (DateTimeOffset?)null : snapshot.LastLiveAt,
+            DateTimeOffset.UtcNow);
+        IList<DiagnosticCheck> checks = diagnosticsService.BuildChecksExtended(
             snapshot,
             credentialDiagnostic,
             networkDiagnostic,
             autoStartEnabled,
             !string.IsNullOrWhiteSpace(autoStartError),
-            settings);
+            settings,
+            history.Count,
+            forecastAvailable,
+            settings.GlobalHotkeyEnabled,
+            globalHotkey.IsRegistered,
+            settings.ResetNotificationsEnabled,
+            settings.ForecastNotificationsEnabled,
+            snapshot == null ? (DateTimeOffset?)null : snapshot.LastLiveAt,
+            DateTimeOffset.UtcNow);
         return new DiagnosticSnapshot(report, checks);
     }
 
@@ -1543,7 +1695,9 @@ internal sealed class StatusWindow : Form
             initialSnapshot.Report,
             initialSnapshot.Checks,
             RefreshDiagnosticsForFormAsync,
-            settings.Theme))
+            settings.Theme,
+            OpenDataFolder,
+            ExportHistoryCsv))
         {
             form.ShowDialog(this);
         }
@@ -1568,12 +1722,68 @@ internal sealed class StatusWindow : Form
         }
     }
 
-    private void ClearLocalData()
+    /// <summary>
+    /// 将本地趋势导出为脱敏 CSV，并在资源管理器中定位文件。导出只包含窗口、百分比和时间，不会读取 OAuth 文件。
+    /// </summary>
+    private void ExportHistoryCsv()
+    {
+        string exportPath = historyStore.ExportCsv();
+        if (string.IsNullOrWhiteSpace(exportPath))
+        {
+            MessageBox.Show(this, "暂无可导出的趋势，或本地文件暂时不可写。", "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + exportPath + "\"")
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception)
+        {
+            MessageBox.Show(this, "趋势已导出：\r\n" + exportPath, "导出成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    private void OpenDataFolder()
+    {
+        try
+        {
+            string directory = LocalStoragePaths.RootDirectory;
+            Directory.CreateDirectory(directory);
+            Process.Start(new ProcessStartInfo(directory) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            MessageBox.Show(this, "无法打开应用数据目录。", "打开失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void ClearHistoryData()
     {
         DialogResult choice = MessageBox.Show(
             this,
-            "将删除本项目保存的额度缓存和趋势历史，不会影响 Codex 登录。是否继续？",
-            "清除本地数据",
+            "将删除本项目保存的趋势历史和导出文件，不会影响最近成功缓存或 Codex 登录。是否继续？",
+            "清除趋势历史",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (choice != DialogResult.Yes)
+        {
+            return;
+        }
+
+        historyStore.Clear();
+        RefreshLocalPresentation();
+    }
+
+    private void ClearCacheData()
+    {
+        DialogResult choice = MessageBox.Show(
+            this,
+            "将删除最近成功额度缓存，不会删除趋势历史、导出文件或 Codex 登录。是否继续？",
+            "清除最近成功缓存",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
         if (choice != DialogResult.Yes)
@@ -1582,10 +1792,11 @@ internal sealed class StatusWindow : Form
         }
 
         usageCache.Clear();
-        historyStore.Clear();
-        usageSnapshot = UsageSnapshot.Loading("chatgpt-codex");
-        snapshot = QuotaSnapshot.Loading();
-        UpdateVisualTargets(true);
+        RefreshLocalPresentation();
+    }
+
+    private void RefreshLocalPresentation()
+    {
         toolTip.SetToolTip(this, BuildTooltipText());
         trayController.SetStatus(BuildTrayStatus());
         Invalidate();
@@ -1995,7 +2206,13 @@ internal sealed class StatusWindow : Form
         {
             text += "\r\n" + snapshot.ErrorText;
         }
-        text += "\r\n点击展开 Usage Hub；右键：刷新周期、背景样式、开机自启和诊断";
+        text += "\r\n点击展开 Usage Hub；右键：刷新周期、数据导出、背景样式、开机自启和诊断";
+        if (settings.GlobalHotkeyEnabled)
+        {
+            text += globalHotkeyRegistrationFailed
+                ? "\r\n快捷键 Ctrl+Alt+U：注册冲突，请查看诊断"
+                : "\r\n快捷键 Ctrl+Alt+U：唤起 Usage Hub";
+        }
         return text;
     }
 

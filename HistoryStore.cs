@@ -164,6 +164,64 @@ internal sealed class HistoryStore
         TryDelete(HistoryPath);
         TryDelete(HistoryPath + ".tmp");
         TryDelete(HistoryPath + ".bak");
+        ClearExports();
+    }
+
+    /// <summary>
+    /// 导出当前保留周期内的脱敏趋势。CSV 只写入窗口秒数、百分比和时间，便于用户自行分析或附到 Issue。
+    /// </summary>
+    public string ExportCsv()
+    {
+        IList<HistoryPoint> points = Load();
+        if (points.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        string temporaryPath = string.Empty;
+        try
+        {
+            string historyFullPath = Path.GetFullPath(HistoryPath);
+            string directory = Path.GetDirectoryName(historyFullPath);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return string.Empty;
+            }
+
+            string exportDirectory = Path.Combine(directory, "exports");
+            Directory.CreateDirectory(exportDirectory);
+            string stem = "usage-history-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
+            string exportPath = Path.Combine(exportDirectory, stem + ".csv");
+            int suffix = 1;
+            while (File.Exists(exportPath))
+            {
+                exportPath = Path.Combine(exportDirectory, stem + "-" + suffix.ToString(CultureInfo.InvariantCulture) + ".csv");
+                suffix++;
+            }
+
+            temporaryPath = exportPath + ".tmp";
+            using (StreamWriter writer = new StreamWriter(temporaryPath, false, new UTF8Encoding(false)))
+            {
+                writer.WriteLine("window_seconds,used_percent,reset_at,observed_at");
+                foreach (HistoryPoint point in points)
+                {
+                    writer.Write(point.LimitWindowSeconds.ToString(CultureInfo.InvariantCulture));
+                    writer.Write(",");
+                    writer.Write(point.UsedPercent.ToString("0.###", CultureInfo.InvariantCulture));
+                    writer.Write(",");
+                    writer.Write(EscapeCsv(FormatDate(point.ResetAt)));
+                    writer.Write(",");
+                    writer.WriteLine(EscapeCsv(FormatDate(point.ObservedAt)));
+                }
+            }
+            File.Move(temporaryPath, exportPath);
+            return exportPath;
+        }
+        catch (Exception)
+        {
+            TryDelete(temporaryPath);
+            return string.Empty;
+        }
     }
 
     private void Save(IList<HistoryPoint> points)
@@ -288,6 +346,16 @@ internal sealed class HistoryStore
         return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out parsed);
     }
 
+    private static string EscapeCsv(string value)
+    {
+        string safeValue = value ?? string.Empty;
+        if (safeValue.IndexOfAny(new[] { ',', '"', '\r', '\n' }) < 0)
+        {
+            return safeValue;
+        }
+        return "\"" + safeValue.Replace("\"", "\"\"") + "\"";
+    }
+
     private static void TryDelete(string path)
     {
         try
@@ -300,6 +368,32 @@ internal sealed class HistoryStore
         catch (Exception)
         {
             // 清理失败不覆盖主流程。
+        }
+    }
+
+    private void ClearExports()
+    {
+        try
+        {
+            string historyFullPath = Path.GetFullPath(HistoryPath);
+            string directory = Path.GetDirectoryName(historyFullPath);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return;
+            }
+            string exportDirectory = Path.Combine(directory, "exports");
+            if (!Directory.Exists(exportDirectory))
+            {
+                return;
+            }
+            foreach (string exportPath in Directory.GetFiles(exportDirectory, "usage-history-*.csv*"))
+            {
+                TryDelete(exportPath);
+            }
+        }
+        catch (Exception)
+        {
+            // 导出清理失败不覆盖主历史文件的清理结果。
         }
     }
 

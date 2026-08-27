@@ -117,6 +117,50 @@ internal sealed class DiagnosticsService
     }
 
     /// <summary>
+    /// 在基础诊断上追加本地趋势、快捷键和提醒状态。扩展字段仍是固定白名单，不包含本地路径或接口原文。
+    /// </summary>
+    public string BuildExtended(
+        QuotaSnapshot snapshot,
+        string credentialDiagnostic,
+        string proxyDiagnostic,
+        bool autoStartEnabled,
+        bool hasAutoStartError,
+        AppSettings settings,
+        int historyCount,
+        bool forecastAvailable,
+        bool hotkeyEnabled,
+        bool hotkeyRegistered,
+        bool resetNotificationsEnabled,
+        bool forecastNotificationsEnabled,
+        DateTimeOffset? lastSuccessfulAt,
+        DateTimeOffset now)
+    {
+        string baseReport = Build(
+            snapshot,
+            credentialDiagnostic,
+            proxyDiagnostic,
+            autoStartEnabled,
+            hasAutoStartError,
+            settings);
+        int privacyMarker = baseReport.LastIndexOf("诊断信息不包含", StringComparison.Ordinal);
+        if (privacyMarker < 0)
+        {
+            return baseReport;
+        }
+
+        StringBuilder extension = new StringBuilder();
+        extension.AppendLine("本地历史点：" + (historyCount < 0 ? "未读取" : historyCount.ToString(CultureInfo.InvariantCulture) + " 条"));
+        extension.AppendLine("最近成功年龄：" + FormatRecentSuccessAge(lastSuccessfulAt, now));
+        extension.AppendLine("趋势洞察：" + (forecastAvailable ? "当前周期预测可用" : "等待同周期样本"));
+        extension.AppendLine("全局快捷键 Ctrl+Alt+U：" + (!hotkeyEnabled ? "已关闭" : (hotkeyRegistered ? "已注册" : "注册冲突")));
+        extension.AppendLine("重置提醒：" + (resetNotificationsEnabled ? "已开启" : "已关闭"));
+        extension.AppendLine("预测提醒：" + (forecastNotificationsEnabled ? "已开启（2 小时内）" : "已关闭"));
+        StringBuilder enriched = new StringBuilder(baseReport);
+        enriched.Insert(privacyMarker, extension.ToString());
+        return enriched.ToString();
+    }
+
+    /// <summary>
     /// 生成固定白名单诊断项。每一项只给出状态和下一步，不把异常、路径或接口响应传入 UI。
     /// </summary>
     public IList<DiagnosticCheck> BuildChecks(
@@ -184,6 +228,89 @@ internal sealed class DiagnosticsService
             hasAutoStartError ? "在设置中重新保存开机启动" : "无需操作"));
 
         return checks;
+    }
+
+    /// <summary>
+    /// 追加趋势洞察、全局快捷键和重置提醒检查项，保持旧的六参数 BuildChecks 反射契约不变。
+    /// </summary>
+    public IList<DiagnosticCheck> BuildChecksExtended(
+        QuotaSnapshot snapshot,
+        string credentialDiagnostic,
+        string proxyDiagnostic,
+        bool autoStartEnabled,
+        bool hasAutoStartError,
+        AppSettings settings,
+        int historyCount,
+        bool forecastAvailable,
+        bool hotkeyEnabled,
+        bool hotkeyRegistered,
+        bool resetNotificationsEnabled,
+        bool forecastNotificationsEnabled,
+        DateTimeOffset? lastSuccessfulAt,
+        DateTimeOffset now)
+    {
+        IList<DiagnosticCheck> baseChecks = BuildChecks(
+            snapshot,
+            credentialDiagnostic,
+            proxyDiagnostic,
+            autoStartEnabled,
+            hasAutoStartError,
+            settings);
+        List<DiagnosticCheck> checks = new List<DiagnosticCheck>(baseChecks);
+        checks.Add(new DiagnosticCheck(
+            "趋势洞察",
+            forecastAvailable ? DiagnosticCheckStatus.Pass : DiagnosticCheckStatus.Warning,
+            forecastAvailable ? "当前周期已有可用消耗预测" : (historyCount > 0 ? "历史样本尚不足以生成预测" : "暂无本地趋势样本"),
+            forecastAvailable ? "无需操作" : "成功刷新并等待同一重置周期的历史样本"));
+        bool recentSuccessAvailable = lastSuccessfulAt.HasValue && lastSuccessfulAt.Value <= now;
+        checks.Add(new DiagnosticCheck(
+            "最近成功",
+            recentSuccessAvailable ? DiagnosticCheckStatus.Pass : DiagnosticCheckStatus.Warning,
+            recentSuccessAvailable ? "最近成功距今 " + FormatRecentSuccessAge(lastSuccessfulAt, now) : "尚无可用的成功查询时间",
+            recentSuccessAvailable ? "无需操作" : "完成一次成功刷新后会记录时间"));
+        checks.Add(new DiagnosticCheck(
+            "全局快捷键",
+            !hotkeyEnabled || hotkeyRegistered ? DiagnosticCheckStatus.Pass : DiagnosticCheckStatus.Warning,
+            !hotkeyEnabled ? "Ctrl+Alt+U 已关闭" : (hotkeyRegistered ? "Ctrl+Alt+U 已注册" : "Ctrl+Alt+U 与其他程序冲突"),
+            !hotkeyEnabled || hotkeyRegistered ? "无需操作" : "关闭其他占用快捷键的程序，或在设置中关闭此选项"));
+        checks.Add(new DiagnosticCheck(
+            "重置提醒",
+            DiagnosticCheckStatus.Pass,
+            resetNotificationsEnabled ? "额度周期重置提醒已开启" : "额度周期重置提醒已关闭",
+            "可在设置中按需调整"));
+        checks.Add(new DiagnosticCheck(
+            "预测提醒",
+            DiagnosticCheckStatus.Pass,
+            forecastNotificationsEnabled ? "2 小时内耗尽预测提醒已开启" : "耗尽预测提醒已关闭",
+            "可在设置中按需调整"));
+        return checks;
+    }
+
+    private static string FormatRecentSuccessAge(DateTimeOffset? lastSuccessfulAt, DateTimeOffset now)
+    {
+        if (!lastSuccessfulAt.HasValue)
+        {
+            return "未成功";
+        }
+
+        TimeSpan age = now.ToUniversalTime() - lastSuccessfulAt.Value.ToUniversalTime();
+        if (age < TimeSpan.Zero)
+        {
+            return "时间未同步";
+        }
+        if (age.TotalMinutes < 1d)
+        {
+            return "不足 1 分钟";
+        }
+        if (age.TotalHours < 1d)
+        {
+            return ((int)age.TotalMinutes).ToString(CultureInfo.InvariantCulture) + " 分钟";
+        }
+        if (age.TotalDays < 1d)
+        {
+            return ((int)age.TotalHours).ToString(CultureInfo.InvariantCulture) + " 小时";
+        }
+        return ((int)age.TotalDays).ToString(CultureInfo.InvariantCulture) + " 天";
     }
 
     private static string BuildOAuthLine(string value)

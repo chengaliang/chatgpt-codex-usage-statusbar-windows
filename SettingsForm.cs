@@ -18,6 +18,9 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox notificationsCheck;
     private readonly CheckBox restorePositionCheck;
     private readonly CheckBox animationsCheck;
+    private readonly ComboBox hotkeyCombo;
+    private readonly CheckBox resetNotificationsCheck;
+    private readonly CheckBox forecastNotificationsCheck;
     private readonly NumericUpDown thresholdInput;
     private readonly ThemePalette palette;
 
@@ -36,8 +39,8 @@ internal sealed class SettingsForm : Form
         palette = ThemePalette.Create(draft.Theme);
 
         Text = "状态栏设置";
-        ClientSize = new Size(520, 570);
-        MinimumSize = new Size(500, 540);
+        ClientSize = new Size(520, 690);
+        MinimumSize = new Size(500, 650);
         FormBorderStyle = FormBorderStyle.None;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -53,11 +56,11 @@ internal sealed class SettingsForm : Form
         layout.Dock = DockStyle.Fill;
         layout.Padding = new Padding(22, 18, 22, 16);
         layout.ColumnCount = 2;
-        layout.RowCount = 13;
+        layout.RowCount = 16;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 172f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
-        for (int row = 1; row <= 11; row++)
+        for (int row = 1; row <= 14; row++)
         {
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
         }
@@ -160,6 +163,24 @@ internal sealed class SettingsForm : Form
         animationsCheck.Checked = draft.AnimationsEnabled;
         animationsCheck.AccessibleName = "开启平滑进度和状态动效";
 
+        hotkeyCombo = CreateCombo();
+        hotkeyCombo.Items.Add("Ctrl+Alt+U（唤起 Usage Hub）");
+        hotkeyCombo.Items.Add("关闭全局快捷键");
+        hotkeyCombo.SelectedIndex = draft.GlobalHotkeyEnabled ? 0 : 1;
+        hotkeyCombo.AccessibleName = "全局快捷键设置";
+
+        resetNotificationsCheck = new CheckBox();
+        resetNotificationsCheck.Text = "额度周期重置后提醒一次";
+        resetNotificationsCheck.AutoSize = true;
+        resetNotificationsCheck.Checked = draft.ResetNotificationsEnabled;
+        resetNotificationsCheck.AccessibleName = "额度周期重置提醒";
+
+        forecastNotificationsCheck = new CheckBox();
+        forecastNotificationsCheck.Text = "预测 2 小时内耗尽时提醒";
+        forecastNotificationsCheck.AutoSize = true;
+        forecastNotificationsCheck.Checked = draft.ForecastNotificationsEnabled;
+        forecastNotificationsCheck.AccessibleName = "额度耗尽预测提醒";
+
         AddRow(layout, 1, "自动刷新", refreshCombo);
         AddRow(layout, 2, "历史保留", historyRetentionCombo);
         AddRow(layout, 3, "主题", themeCombo);
@@ -171,6 +192,9 @@ internal sealed class SettingsForm : Form
         AddRow(layout, 9, "通知阈值", thresholdInput);
         AddRow(layout, 10, "窗口位置", restorePositionCheck);
         AddRow(layout, 11, "视觉反馈", animationsCheck);
+        AddRow(layout, 12, "全局快捷键", hotkeyCombo);
+        AddRow(layout, 13, "周期提醒", resetNotificationsCheck);
+        AddRow(layout, 14, "预测提醒", forecastNotificationsCheck);
 
         FlowLayoutPanel buttons = new FlowLayoutPanel();
         buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -196,7 +220,7 @@ internal sealed class SettingsForm : Form
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 12);
+        layout.Controls.Add(buttons, 0, 15);
         layout.SetColumnSpan(buttons, 2);
         ApplyControlTheme(layout);
         hint.ForeColor = palette.SecondaryText;
@@ -264,6 +288,10 @@ internal sealed class SettingsForm : Form
         label.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
         label.Margin = new Padding(0, 0, 8, 0);
         control.Margin = new Padding(0, 2, 0, 2);
+        if (string.IsNullOrWhiteSpace(control.AccessibleName))
+        {
+            control.AccessibleName = labelText;
+        }
         layout.Controls.Add(label, 0, row);
         layout.Controls.Add(control, 1, row);
     }
@@ -383,6 +411,9 @@ internal sealed class SettingsForm : Form
         draft.NotificationThresholdPercent = Decimal.ToInt32(thresholdInput.Value);
         draft.RestorePosition = restorePositionCheck.Checked;
         draft.AnimationsEnabled = animationsCheck.Checked;
+        draft.GlobalHotkeyEnabled = hotkeyCombo.SelectedIndex == 0;
+        draft.ResetNotificationsEnabled = resetNotificationsCheck.Checked;
+        draft.ForecastNotificationsEnabled = forecastNotificationsCheck.Checked;
         draft.Normalize();
         Result = draft.Clone();
         DialogResult = DialogResult.OK;

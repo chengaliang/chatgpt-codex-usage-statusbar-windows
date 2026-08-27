@@ -22,9 +22,31 @@ internal sealed class UsageNotification
 /// </summary>
 internal sealed class NotificationEvaluator
 {
+    private const double ForecastWarningHours = 2d;
     private readonly IDictionary<string, NotificationState> thresholdStates = new Dictionary<string, NotificationState>(StringComparer.Ordinal);
 
     public IList<UsageNotification> Evaluate(QuotaSnapshot snapshot, int thresholdPercent)
+    {
+        return EvaluateWithOptions(snapshot, thresholdPercent, false);
+    }
+
+    /// <summary>
+    /// 按用户选项计算阈值和周期重置提醒；默认 Evaluate 保持旧行为，避免改变已有调用方。
+    /// </summary>
+    public IList<UsageNotification> EvaluateWithOptions(QuotaSnapshot snapshot, int thresholdPercent, bool notifyOnReset)
+    {
+        return EvaluateWithInsights(snapshot, thresholdPercent, notifyOnReset, false, null);
+    }
+
+    /// <summary>
+    /// 同时计算阈值、周期重置和本地耗尽预测提醒。预测提醒默认关闭，且按窗口和 reset_at 去重。
+    /// </summary>
+    public IList<UsageNotification> EvaluateWithInsights(
+        QuotaSnapshot snapshot,
+        int thresholdPercent,
+        bool notifyOnReset,
+        bool notifyOnForecast,
+        IList<UsageInsight> insights)
     {
         List<UsageNotification> notifications = new List<UsageNotification>();
         if (snapshot == null || !snapshot.Success || snapshot.Windows == null)
@@ -54,13 +76,19 @@ internal sealed class NotificationEvaluator
 
             if (IsResetCycle(state.ResetAt, window.ResetAt))
             {
-                // reset_at 变化代表官方进入新周期；新周期首次已超过阈值时立即提醒一次，否则等待正常跨越。
+                // reset_at 变化代表官方进入新周期；重置提醒和阈值提醒分别受控且各自只发一次。
                 state.ResetAt = window.ResetAt;
                 state.AboveThreshold = crossed;
+                if (notifyOnReset)
+                {
+                    notifications.Add(CreateResetNotification(window));
+                }
                 if (crossed)
                 {
                     notifications.Add(CreateNotification(window, threshold));
                 }
+                state.ForecastNotified = false;
+                TryAddForecastNotification(notifications, state, window, FindInsight(insights, window.LimitWindowSeconds), notifyOnForecast);
                 continue;
             }
 
@@ -75,6 +103,7 @@ internal sealed class NotificationEvaluator
                 notifications.Add(CreateNotification(window, threshold));
             }
             state.AboveThreshold = crossed;
+            TryAddForecastNotification(notifications, state, window, FindInsight(insights, window.LimitWindowSeconds), notifyOnForecast);
         }
 
         List<string> staleKeys = new List<string>();
@@ -126,6 +155,67 @@ internal sealed class NotificationEvaluator
             window.UsedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%）");
     }
 
+    private static UsageNotification CreateResetNotification(QuotaWindow window)
+    {
+        string resetText = window.ResetAt.HasValue
+            ? window.ResetAt.Value.ToLocalTime().ToString("MM/dd HH:mm", CultureInfo.InvariantCulture)
+            : "时间未知";
+        return new UsageNotification(
+            "额度周期已重置",
+            GetWindowLabel(window.LimitWindowSeconds) + "已进入新周期，下次重置 " + resetText);
+    }
+
+    private static UsageInsight FindInsight(IList<UsageInsight> insights, int limitWindowSeconds)
+    {
+        if (insights == null)
+        {
+            return null;
+        }
+        foreach (UsageInsight insight in insights)
+        {
+            if (insight != null && insight.LimitWindowSeconds == limitWindowSeconds)
+            {
+                return insight;
+            }
+        }
+        return null;
+    }
+
+    private static void TryAddForecastNotification(
+        IList<UsageNotification> notifications,
+        NotificationState state,
+        QuotaWindow window,
+        UsageInsight insight,
+        bool notifyOnForecast)
+    {
+        if (!notifyOnForecast || insight == null || !insight.ProjectedExhaustionAt.HasValue)
+        {
+            return;
+        }
+
+        double remainingHours = (insight.ProjectedExhaustionAt.Value - DateTimeOffset.Now).TotalHours;
+        bool forecastSoon = remainingHours >= 0d && remainingHours <= ForecastWarningHours;
+        if (!forecastSoon)
+        {
+            return;
+        }
+        if (!state.ForecastNotified)
+        {
+            notifications.Add(CreateForecastNotification(window, remainingHours));
+            state.ForecastNotified = true;
+        }
+    }
+
+    private static UsageNotification CreateForecastNotification(QuotaWindow window, double remainingHours)
+    {
+        string remainingText = remainingHours < 1d
+            ? Math.Max(1, (int)Math.Round(remainingHours * 60d, MidpointRounding.AwayFromZero)).ToString(CultureInfo.InvariantCulture) + " 分钟"
+            : remainingHours.ToString("0.#", CultureInfo.InvariantCulture) + " 小时";
+        return new UsageNotification(
+            "额度可能即将耗尽",
+            GetWindowLabel(window.LimitWindowSeconds) + "按最近历史预计约 " + remainingText + " 后达到上限");
+    }
+
     private static bool IsResetCycle(DateTimeOffset? previous, DateTimeOffset? current)
     {
         return previous.HasValue && current.HasValue && previous.Value != current.Value;
@@ -135,11 +225,13 @@ internal sealed class NotificationEvaluator
     {
         public bool AboveThreshold { get; set; }
         public DateTimeOffset? ResetAt { get; set; }
+        public bool ForecastNotified { get; set; }
 
         public NotificationState(bool aboveThreshold, DateTimeOffset? resetAt)
         {
             AboveThreshold = aboveThreshold;
             ResetAt = resetAt;
+            ForecastNotified = false;
         }
     }
 }

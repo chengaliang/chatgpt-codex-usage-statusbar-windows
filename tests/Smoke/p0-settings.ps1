@@ -15,8 +15,18 @@ $settings.NotificationThresholdPercent = 150
 $settings.Normalize()
 if ($settings.RefreshIntervalMinutes -ne 5) { throw 'invalid refresh interval was not normalized' }
 if ($settings.NotificationThresholdPercent -ne 80) { throw 'invalid threshold was not normalized' }
+foreach ($name in @('GlobalHotkeyEnabled', 'ResetNotificationsEnabled', 'ForecastNotificationsEnabled')) {
+    if ($null -eq $settingsType.GetProperty($name)) { throw "AppSettings property missing: $name" }
+}
+if (-not $settings.GlobalHotkeyEnabled) { throw 'global hotkey should be enabled by default' }
 $clone = $settings.Clone()
 if ([object]::ReferenceEquals($settings, $clone)) { throw 'settings clone shares the source object' }
+
+$hotkeyType = $assembly.GetType('GlobalHotkey')
+if ($null -eq $hotkeyType -or $null -eq $hotkeyType.GetMethod('TryRegister') -or $null -eq $hotkeyType.GetMethod('Unregister') -or $null -eq $hotkeyType.GetProperty('IsRegistered')) { throw 'GlobalHotkey boundary is missing' }
+$hotkey = [Activator]::CreateInstance($hotkeyType, [object[]]@($null))
+if ($hotkey.ShortcutText -ne 'Ctrl+Alt+U') { throw 'global hotkey shortcut text is incorrect' }
+$hotkey.Dispose()
 
 $tempRoot = Join-Path $env:TEMP ('chatgpt-codex-statusbar-smoke-' + [Guid]::NewGuid().ToString('N'))
 $settingsPath = Join-Path $tempRoot 'settings.json'
@@ -33,6 +43,9 @@ try {
     $settings.RefreshIntervalMinutes = 10
     $settings.NotificationThresholdPercent = 90
     $settings.AnimationsEnabled = $false
+    $settings.GlobalHotkeyEnabled = $false
+    $settings.ResetNotificationsEnabled = $true
+    $settings.ForecastNotificationsEnabled = $true
     $store.Save($settings)
     $savedJson = [IO.File]::ReadAllText($settingsPath)
     if ($savedJson -match 'access_token|refresh_token|id_token|account_id') { throw 'settings file contains credential fields' }
@@ -40,6 +53,9 @@ try {
     if ($loaded.RefreshIntervalMinutes -ne 10) { throw 'saved refresh interval was not loaded' }
     if ($loaded.NotificationThresholdPercent -ne 90) { throw 'saved threshold was not loaded' }
     if ($loaded.AnimationsEnabled) { throw 'saved animations setting was not loaded' }
+    if ($loaded.GlobalHotkeyEnabled) { throw 'saved global hotkey setting was not loaded' }
+    if (-not $loaded.ResetNotificationsEnabled) { throw 'saved reset notification setting was not loaded' }
+    if (-not $loaded.ForecastNotificationsEnabled) { throw 'saved forecast notification setting was not loaded' }
 
     [IO.File]::WriteAllText($settingsPath, '{ invalid json', [Text.Encoding]::UTF8)
     $fallback = $store.Load()
@@ -148,6 +164,30 @@ $windowListNull.Add($windowConstructor.Invoke([object[]]@('5-hour window', 18000
 $snapshotNull = $snapshotMethod.Invoke($null, [object[]]@('secret-plan-value', 'secret-account-value', $windowListNull))
 $nullNotifications = $evaluateMethod.Invoke($evaluatorNull, [object[]]@($snapshotNull, 80))
 if ($nullNotifications.Count -ne 0) { throw 'missing reset_at field caused a duplicate notification' }
+$evaluateOptionsMethod = $evaluatorType.GetMethod('EvaluateWithOptions')
+if ($null -eq $evaluateOptionsMethod) { throw 'notification options method is missing' }
+$evaluatorReset = [Activator]::CreateInstance($evaluatorType)
+$evaluateOptionsMethod.Invoke($evaluatorReset, [object[]]@($snapshot, 80, $true)) | Out-Null
+$resetOptionNotifications = $evaluateOptionsMethod.Invoke($evaluatorReset, [object[]]@($snapshot3, 80, $true))
+if ($resetOptionNotifications.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$resetOptionNotifications[0].Title)) { throw 'reset notification option did not produce a single safe alert' }
+$duplicateResetOptionNotifications = $evaluateOptionsMethod.Invoke($evaluatorReset, [object[]]@($snapshot3, 80, $true))
+if ($duplicateResetOptionNotifications.Count -ne 0) { throw 'reset notification option repeated the same alert' }
+$evaluateInsightsMethod = $evaluatorType.GetMethod('EvaluateWithInsights')
+if ($null -eq $evaluateInsightsMethod) { throw 'forecast notification method is missing' }
+$forecastInsightType = $assembly.GetType('UsageInsight')
+$directionType = $assembly.GetType('UsageTrendDirection')
+$forecastInsightCtor = $forecastInsightType.GetConstructor([Type[]]@([int], [double], [int], $directionType, [Nullable[DateTimeOffset]]))
+if ($null -eq $forecastInsightCtor) { throw 'UsageInsight constructor boundary is missing' }
+$soon = $forecastInsightCtor.Invoke([object[]]@([int]18000, [double]12.0, [int]3, [Enum]::Parse($directionType, 'Rising'), [DateTimeOffset]::Now.AddMinutes(30)))
+$insightListType = [System.Collections.Generic.List``1].MakeGenericType($forecastInsightType)
+$forecastInsights = [Activator]::CreateInstance($insightListType)
+$forecastInsights.Add($soon)
+$forecastEvaluator = [Activator]::CreateInstance($evaluatorType)
+$evaluateInsightsMethod.Invoke($forecastEvaluator, [object[]]@($snapshot2, 80, $false, $true, $forecastInsights)) | Out-Null
+$forecastNotifications = $evaluateInsightsMethod.Invoke($forecastEvaluator, [object[]]@($snapshot2, 80, $false, $true, $forecastInsights))
+if ($forecastNotifications.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$forecastNotifications[0].Title)) { throw 'forecast notification did not trigger once' }
+$duplicateForecastNotifications = $evaluateInsightsMethod.Invoke($forecastEvaluator, [object[]]@($snapshot2, 80, $false, $true, $forecastInsights))
+if ($duplicateForecastNotifications.Count -ne 0) { throw 'forecast notification repeated the same alert' }
 
 $diagnosticsType = $assembly.GetType('DiagnosticsService')
 $diagnostics = [Activator]::CreateInstance($diagnosticsType)

@@ -10,12 +10,15 @@ using System.Windows.Forms;
 internal sealed class DiagnosticsForm : Form
 {
     private readonly Func<Task<DiagnosticSnapshot>> refreshAction;
+    private readonly Action openDataFolder;
+    private readonly Action exportHistory;
     private readonly ThemePalette palette;
     private readonly Label summaryLabel;
     private readonly TableLayoutPanel checksLayout;
     private readonly TextBox reportBox;
     private readonly Button refreshButton;
     private readonly Button copyButton;
+    private readonly Button exportButton;
     private readonly Button chromeMaximizeButton;
     private DiagnosticSnapshot snapshot;
 
@@ -29,9 +32,13 @@ internal sealed class DiagnosticsForm : Form
         string report,
         IList<DiagnosticCheck> checks,
         Func<Task<DiagnosticSnapshot>> refreshAction,
-        ThemeMode theme)
+        ThemeMode theme,
+        Action openDataFolder,
+        Action exportHistory)
     {
         this.refreshAction = refreshAction;
+        this.openDataFolder = openDataFolder;
+        this.exportHistory = exportHistory;
         palette = ThemePalette.Create(theme);
         snapshot = new DiagnosticSnapshot(report, checks);
 
@@ -152,9 +159,38 @@ internal sealed class DiagnosticsForm : Form
         refreshButton.AccessibleName = "重新检查诊断项目";
 
         buttons.Controls.Add(closeButton);
+        Button folderButton = new Button();
+        folderButton.Text = "打开数据目录";
+        folderButton.Width = 112;
+        folderButton.Height = 34;
+        folderButton.Click += delegate(object sender, EventArgs args)
+        {
+            if (this.openDataFolder != null)
+            {
+                this.openDataFolder();
+            }
+        };
+        folderButton.AccessibleName = "打开应用数据目录";
+        buttons.Controls.Add(folderButton);
+
+        exportButton = new Button();
+        exportButton.Text = "导出趋势";
+        exportButton.Width = 94;
+        exportButton.Height = 34;
+        exportButton.Click += delegate(object sender, EventArgs args)
+        {
+            if (this.exportHistory != null)
+            {
+                this.exportHistory();
+            }
+        };
+        exportButton.AccessibleName = "导出脱敏趋势 CSV";
+        buttons.Controls.Add(exportButton);
         buttons.Controls.Add(copyButton);
         buttons.Controls.Add(refreshButton);
         UiTheme.StyleButton(closeButton, palette, false);
+        UiTheme.StyleButton(folderButton, palette, false);
+        UiTheme.StyleButton(exportButton, palette, false);
         UiTheme.StyleButton(copyButton, palette, false);
         UiTheme.StyleButton(refreshButton, palette, true);
         layout.Controls.Add(buttons, 0, 3);
@@ -210,6 +246,31 @@ internal sealed class DiagnosticsForm : Form
             chromeMaximizeButton.Text = WindowState == FormWindowState.Maximized ? "❐" : "□";
         };
         Shown += delegate(object sender, EventArgs args) { UpdateView(); };
+    }
+
+    /// <summary>
+    /// 保留旧的五参数构造入口，便于外部调用方只接入数据目录按钮。
+    /// </summary>
+    public DiagnosticsForm(
+        string report,
+        IList<DiagnosticCheck> checks,
+        Func<Task<DiagnosticSnapshot>> refreshAction,
+        ThemeMode theme,
+        Action openDataFolder)
+        : this(report, checks, refreshAction, theme, openDataFolder, null)
+    {
+    }
+
+    /// <summary>
+    /// 保留旧的四参数构造入口，便于无 UI 环境的 smoke 反射验证。
+    /// </summary>
+    public DiagnosticsForm(
+        string report,
+        IList<DiagnosticCheck> checks,
+        Func<Task<DiagnosticSnapshot>> refreshAction,
+        ThemeMode theme)
+        : this(report, checks, refreshAction, theme, null, null)
+    {
     }
 
     protected override CreateParams CreateParams
@@ -272,6 +333,7 @@ internal sealed class DiagnosticsForm : Form
 
         refreshButton.Enabled = false;
         copyButton.Enabled = false;
+        exportButton.Enabled = false;
         refreshButton.Text = "检查中…";
         try
         {
@@ -295,6 +357,7 @@ internal sealed class DiagnosticsForm : Form
             {
                 refreshButton.Enabled = true;
                 copyButton.Enabled = true;
+                exportButton.Enabled = true;
                 refreshButton.Text = "重新检查";
             }
         }
@@ -319,6 +382,16 @@ internal sealed class DiagnosticsForm : Form
         {
             e.SuppressKeyPress = true;
             await RefreshAsync();
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.E)
+        {
+            e.SuppressKeyPress = true;
+            if (exportHistory != null && exportButton.Enabled)
+            {
+                exportHistory();
+            }
         }
     }
 

@@ -41,6 +41,9 @@ internal sealed class AppSettings
     public int NotificationThresholdPercent { get; set; }
     public bool RestorePosition { get; set; }
     public bool AnimationsEnabled { get; set; }
+    public bool GlobalHotkeyEnabled { get; set; }
+    public bool ResetNotificationsEnabled { get; set; }
+    public bool ForecastNotificationsEnabled { get; set; }
     public bool HasSavedPosition { get; set; }
     public int PositionX { get; set; }
     public int PositionY { get; set; }
@@ -58,6 +61,9 @@ internal sealed class AppSettings
         NotificationThresholdPercent = 80;
         RestorePosition = true;
         AnimationsEnabled = true;
+        GlobalHotkeyEnabled = true;
+        ResetNotificationsEnabled = false;
+        ForecastNotificationsEnabled = false;
         HasSavedPosition = false;
         PositionX = 0;
         PositionY = 0;
@@ -119,6 +125,9 @@ internal sealed class AppSettings
             NotificationThresholdPercent = NotificationThresholdPercent,
             RestorePosition = RestorePosition,
             AnimationsEnabled = AnimationsEnabled,
+            GlobalHotkeyEnabled = GlobalHotkeyEnabled,
+            ResetNotificationsEnabled = ResetNotificationsEnabled,
+            ForecastNotificationsEnabled = ForecastNotificationsEnabled,
             HasSavedPosition = HasSavedPosition,
             PositionX = PositionX,
             PositionY = PositionY

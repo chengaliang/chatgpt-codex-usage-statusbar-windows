@@ -94,6 +94,13 @@ $historyPoints = $history.Load()
 if ($historyPoints.Count -ne 1) { throw 'HistoryStore did not deduplicate identical observations' }
 $historyJson = [IO.File]::ReadAllText($historyPath)
 if ($historyJson -match 'access_token|refresh_token|Bearer|account_id') { throw 'HistoryStore contains a sensitive field' }
+$exportMethod = $historyType.GetMethod('ExportCsv')
+if ($null -eq $exportMethod) { throw 'HistoryStore CSV export method is missing' }
+$exportPath = [string]$exportMethod.Invoke($history, $null)
+if ([string]::IsNullOrWhiteSpace($exportPath) -or -not (Test-Path -LiteralPath $exportPath)) { throw 'HistoryStore CSV export did not create a file' }
+$exportText = [IO.File]::ReadAllText($exportPath)
+if ($exportText -notmatch '^window_seconds,used_percent,reset_at,observed_at') { throw 'HistoryStore CSV header is invalid' }
+if ($exportText -match 'access_token|refresh_token|Bearer|account_id|127\.0\.0\.1') { throw 'HistoryStore CSV contains a sensitive field' }
 $historyRetentionCtor = $historyType.GetConstructor([Reflection.BindingFlags]'NonPublic,Instance', $null, [Type[]]@([string], [int]), $null)
 if ($null -eq $historyRetentionCtor) { throw 'HistoryStore retention constructor is missing' }
 $shortHistoryPath = Join-Path $tempRoot 'history-short.json'
@@ -111,6 +118,7 @@ if ($shortExisting.Load().Count -ne 0) { throw 'HistoryStore did not keep trimme
 $shortHistory.SetRetentionDays(999)
 if ($shortHistory.RetentionDays -ne 30) { throw 'HistoryStore did not normalize an invalid retention period' }
 $history.Clear()
+if (Test-Path -LiteralPath $exportPath) { throw 'HistoryStore clear did not remove CSV exports' }
 $shortHistory.Clear()
 Remove-Item -LiteralPath $tempRoot -Recurse -Force
 
@@ -118,6 +126,39 @@ $detailType = $assembly.GetType('UsageDetailsForm')
 $historyPointType = $assembly.GetType('HistoryPoint')
 $historyListType = [System.Collections.Generic.List``1].MakeGenericType($historyPointType)
 $historyList = [Activator]::CreateInstance($historyListType)
+$insightsType = $assembly.GetType('UsageInsights')
+$insightType = $assembly.GetType('UsageInsight')
+if ($null -eq $insightsType -or $null -eq $insightType) { throw 'Usage insights types are missing' }
+foreach ($name in @('Build', 'CalculateRate', 'GetHealthLabel')) {
+    if ($null -eq $insightsType.GetMethod($name)) { throw "UsageInsights method missing: $name" }
+}
+$historyPointCtor = $historyPointType.GetConstructor([Type[]]@([string], [int], [double], [Nullable[DateTimeOffset]], [DateTimeOffset]))
+$insightNow = [DateTimeOffset]::UtcNow
+$insightReset = $insightNow.AddHours(12)
+$historyList.Add($historyPointCtor.Invoke([object[]]@('chatgpt-codex', 18000, 20.0, $insightReset, $insightNow.AddHours(-2))))
+$historyList.Add($historyPointCtor.Invoke([object[]]@('chatgpt-codex', 18000, 40.0, $insightReset, $insightNow)))
+$insightWindowList = [Activator]::CreateInstance($listType)
+$insightWindowCtor = $windowType.GetConstructor([Type[]]@([int], [double], [Nullable[DateTimeOffset]]))
+$insightWindowList.Add($insightWindowCtor.Invoke([object[]]@(18000, 40.0, $insightReset)))
+$insightSnapshot = $usageType.GetMethod('LiveResult').Invoke($null, [object[]]@('chatgpt-codex', 'GPT Plus', $insightWindowList, $insightNow))
+$calculateRateMethod = $insightsType.GetMethod('CalculateRate')
+$rate = [double]$calculateRateMethod.Invoke($null, [object[]]@($historyList, 'chatgpt-codex', 18000, $insightNow))
+if ([Math]::Abs($rate - 10.0) -gt 0.1) { throw 'UsageInsights rate calculation failed' }
+$historyList.Add($historyPointCtor.Invoke([object[]]@('chatgpt-codex', 18000, 99.0, $insightReset.AddHours(-24), $insightNow.AddHours(-3))))
+$buildMethod = $insightsType.GetMethod('Build')
+$insightList = $buildMethod.Invoke($null, [object[]]@($insightSnapshot, $historyList, $insightNow))
+if ($insightList.Count -lt 1 -or -not $insightList[0].HasRate -or $insightList[0].Direction.ToString() -ne 'Rising' -or $null -eq $insightList[0].ProjectedExhaustionAt) { throw 'UsageInsights forecast was not generated' }
+if ([Math]::Abs([double]$insightList[0].RatePerHour - 10.0) -gt 0.1) { throw 'UsageInsights mixed reset cycles into the current trend' }
+$cachedInsightSnapshot = $insightSnapshot.WithCachedState($insightNow.AddMinutes(-10))
+$cachedInsights = $buildMethod.Invoke($null, [object[]]@($cachedInsightSnapshot, $historyList, $insightNow))
+if ($null -ne $cachedInsights[0].ProjectedExhaustionAt) { throw 'UsageInsights forecast should not be presented as live data for stale cache' }
+$healthMethod = $insightsType.GetMethod('GetHealthLabel')
+if ([string]::IsNullOrWhiteSpace([string]$healthMethod.Invoke($null, [object[]]@($insightSnapshot, $historyList, $insightNow)))) { throw 'UsageInsights health label is empty' }
+$noResetWindowList = [Activator]::CreateInstance($listType)
+$noResetWindowList.Add($insightWindowCtor.Invoke([object[]]@(18000, 40.0, $null)))
+$noResetSnapshot = $usageType.GetMethod('LiveResult').Invoke($null, [object[]]@('chatgpt-codex', 'GPT Plus', $noResetWindowList, $insightNow))
+$noResetInsights = $buildMethod.Invoke($null, [object[]]@($noResetSnapshot, $historyList, $insightNow))
+if ($null -ne $noResetInsights[0].ProjectedExhaustionAt) { throw 'UsageInsights forecast ignored missing reset_at' }
 $detailConstructor = $detailType.GetConstructors([Reflection.BindingFlags]'Public,NonPublic,Instance') |
     Where-Object { $_.GetParameters().Count -eq 4 } |
     Select-Object -First 1
@@ -147,6 +188,15 @@ $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($sett
 if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 400) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
 $animationsField = $settingsFormType.GetField('animationsCheck', [Reflection.BindingFlags]'NonPublic,Instance')
 if ($null -eq $animationsField -or -not $animationsField.GetValue($settingsForm).Checked) { throw 'SettingsForm animations option is missing or not enabled by default' }
+$controlQueue = New-Object 'System.Collections.Generic.Queue[System.Windows.Forms.Control]'
+$controlQueue.Enqueue($settingsForm)
+while ($controlQueue.Count -gt 0) {
+    $control = $controlQueue.Dequeue()
+    if (($control -is [System.Windows.Forms.ComboBox] -or $control -is [System.Windows.Forms.NumericUpDown] -or $control -is [System.Windows.Forms.CheckBox]) -and [string]::IsNullOrWhiteSpace($control.AccessibleName)) {
+        throw 'SettingsForm interactive control is missing an accessible name'
+    }
+    foreach ($child in $control.Controls) { $controlQueue.Enqueue($child) }
+}
 $settingsForm.Dispose()
 $diagnosticsType = $assembly.GetType('DiagnosticsService')
 $diagnostics = [Activator]::CreateInstance($diagnosticsType)
@@ -156,6 +206,12 @@ $themeMarker = ([char]0x4e3b).ToString() + ([char]0x9898).ToString() + ([char]0x
 $historyMarker = ([char]0x5386).ToString() + ([char]0x53f2).ToString() + ([char]0x4fdd).ToString() + ([char]0x7559).ToString() + ([char]0xff1a).ToString() + '30 ' + ([char]0x5929).ToString()
 $updateMarker = ([char]0x542f).ToString() + ([char]0x52a8).ToString() + ([char]0x66f4).ToString() + ([char]0x65b0).ToString() + ([char]0x68c0).ToString() + ([char]0x67e5).ToString() + ([char]0xff1a).ToString() + ([char]0x5df2).ToString() + ([char]0x5173).ToString() + ([char]0x95ed).ToString()
 if ($report -notmatch [regex]::Escape($themeMarker) -or $report -notmatch [regex]::Escape($historyMarker) -or $report -notmatch [regex]::Escape($updateMarker)) { throw 'Diagnostics report did not include normalized startup/history settings' }
+$extendedReportMethod = $diagnosticsType.GetMethod('BuildExtended')
+if ($null -eq $extendedReportMethod) { throw 'Diagnostics extended report method is missing' }
+$extendedReport = [string]$extendedReportMethod.Invoke($diagnostics, [object[]]@($loadingSnapshot, 'oauth-readable', 'system-network', $true, $false, $settingsProbe, 3, $true, $true, $false, $true, $true, [DateTimeOffset]::Now.AddMinutes(-5), [DateTimeOffset]::Now))
+$recentAgeMarker = ([char]0x6700).ToString() + ([char]0x8fd1).ToString() + ([char]0x6210).ToString() + ([char]0x529f).ToString() + ([char]0x5e74).ToString() + ([char]0x9f84).ToString()
+if ($extendedReport.Length -le $report.Length -or $extendedReport -notmatch 'Ctrl\+Alt\+U' -or $extendedReport -notmatch '3' -or $extendedReport -notmatch [regex]::Escape($recentAgeMarker)) { throw 'Diagnostics extended report omitted local feature status' }
+if ($extendedReport -match 'access_token|refresh_token|Bearer|account_id|127\.0\.0\.1') { throw 'Diagnostics extended report leaked sensitive values' }
 
 $checkStatusType = $assembly.GetType('DiagnosticCheckStatus')
 $checkType = $assembly.GetType('DiagnosticCheck')
@@ -166,6 +222,12 @@ $checks = $diagnosticsType.GetMethod('BuildChecks').Invoke($diagnostics, [object
 if ($checks.Count -lt 5) { throw 'Diagnostics center returned too few checks' }
 $checksText = $checks | ConvertTo-Json -Depth 5
 if ($checksText -match 'secret-plan-value|secret-account-value|access_token|account_id') { throw 'Diagnostics checks leaked sensitive test values' }
+$extendedChecksMethod = $diagnosticsType.GetMethod('BuildChecksExtended')
+if ($null -eq $extendedChecksMethod) { throw 'Diagnostics extended checks method is missing' }
+$extendedChecks = $extendedChecksMethod.Invoke($diagnostics, [object[]]@($loadingSnapshot, 'oauth-readable', 'system-network', $true, $false, $settingsProbe, 3, $true, $true, $true, $false, $true, [DateTimeOffset]::Now.AddMinutes(-5), [DateTimeOffset]::Now))
+if ($extendedChecks.Count -lt 11) { throw 'Diagnostics extended checks returned too few checks' }
+$extendedChecksText = $extendedChecks | ConvertTo-Json -Depth 5
+if ($extendedChecksText -match 'access_token|account_id|127\.0\.0\.1') { throw 'Diagnostics extended checks are incomplete or unsafe' }
 $diagnosticFormConstructor = $diagnosticFormType.GetConstructors([Reflection.BindingFlags]'Public,NonPublic,Instance') |
     Where-Object { $_.GetParameters().Count -eq 4 } |
     Select-Object -First 1

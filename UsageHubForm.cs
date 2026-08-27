@@ -17,6 +17,8 @@ internal sealed class UsageHubForm : Form
     private readonly Action showSettings;
     private readonly Action showDiagnostics;
     private readonly Action openProject;
+    private readonly Action copySummary;
+    private readonly Action exportHistory;
     private readonly ThemePalette palette;
     private readonly UsageHubSurface surface;
     private readonly FlowLayoutPanel actionBar;
@@ -42,6 +44,8 @@ internal sealed class UsageHubForm : Form
         Action showSettings,
         Action showDiagnostics,
         Action openProject,
+        Action copySummary,
+        Action exportHistory,
         ThemeMode theme,
         bool animationsEnabled)
     {
@@ -50,6 +54,8 @@ internal sealed class UsageHubForm : Form
         this.showSettings = showSettings;
         this.showDiagnostics = showDiagnostics;
         this.openProject = openProject;
+        this.copySummary = copySummary;
+        this.exportHistory = exportHistory;
         palette = ThemePalette.Create(theme);
         snapshot = initialSnapshot == null
             ? UsageSnapshot.Loading("chatgpt-codex")
@@ -61,7 +67,8 @@ internal sealed class UsageHubForm : Form
         Text = "Usage Hub";
         ClientSize = new Size(940, 640);
         // 预留趋势卡、底部状态线和操作条的独立空间，避免缩放到最小尺寸时相互覆盖。
-        MinimumSize = new Size(760, 620);
+        // 底部操作条包含八个固定宽度入口，保留足够横向空间避免最小化后按钮被裁掉。
+        MinimumSize = new Size(860, 620);
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
         ShowInTaskbar = false;
@@ -107,6 +114,14 @@ internal sealed class UsageHubForm : Form
         diagnosticsButton.Click += delegate(object sender, EventArgs args) { CloseThen(showDiagnostics); };
         actionBar.Controls.Add(diagnosticsButton);
 
+        Button copyButton = CreateActionButton("复制摘要", false, 72);
+        copyButton.Click += delegate(object sender, EventArgs args) { CloseThen(copySummary); };
+        actionBar.Controls.Add(copyButton);
+
+        Button exportButton = CreateActionButton("导出趋势", false, 80);
+        exportButton.Click += delegate(object sender, EventArgs args) { CloseThen(exportHistory); };
+        actionBar.Controls.Add(exportButton);
+
         Button projectButton = CreateActionButton("项目主页", false, 96);
         projectButton.Click += delegate(object sender, EventArgs args) { CloseThen(openProject); };
         actionBar.Controls.Add(projectButton);
@@ -148,8 +163,38 @@ internal sealed class UsageHubForm : Form
             null,
             null,
             null,
+            null,
+            null,
             ThemeMode.Dark,
             true)
+    {
+    }
+
+    /// <summary>
+    /// 兼容旧的九参数调用方；新入口可额外注入摘要复制和历史导出动作。
+    /// </summary>
+    public UsageHubForm(
+        UsageSnapshot initialSnapshot,
+        IList<HistoryPoint> initialHistory,
+        Func<Task<UsageSnapshot>> refreshAction,
+        Func<IList<HistoryPoint>> historyLoader,
+        Action showSettings,
+        Action showDiagnostics,
+        Action openProject,
+        ThemeMode theme,
+        bool animationsEnabled)
+        : this(
+            initialSnapshot,
+            initialHistory,
+            refreshAction,
+            historyLoader,
+            showSettings,
+            showDiagnostics,
+            openProject,
+            null,
+            null,
+            theme,
+            animationsEnabled)
     {
     }
 
@@ -191,6 +236,7 @@ internal sealed class UsageHubForm : Form
         button.Width = width;
         button.Height = 38;
         button.AccessibleName = text;
+        button.Margin = new Padding(2, 0, 2, 0);
         UiTheme.StyleButton(button, palette, primary);
         return button;
     }
@@ -256,6 +302,18 @@ internal sealed class UsageHubForm : Form
         {
             e.SuppressKeyPress = true;
             RefreshButtonClick(this, EventArgs.Empty);
+            return;
+        }
+        if (e.Control && e.KeyCode == Keys.C)
+        {
+            e.SuppressKeyPress = true;
+            CloseThen(copySummary);
+            return;
+        }
+        if (e.Control && e.KeyCode == Keys.E)
+        {
+            e.SuppressKeyPress = true;
+            CloseThen(exportHistory);
         }
     }
 
@@ -335,6 +393,8 @@ internal sealed class UsageHubSurface : Control
     private readonly bool animationsEnabled;
     private UsageSnapshot snapshot;
     private IList<HistoryPoint> history = new List<HistoryPoint>();
+    private IList<UsageInsight> insights = new List<UsageInsight>();
+    private string healthLabel = "读取中";
     private double primaryTarget;
     private double secondaryTarget;
     private double primaryAnimated;
@@ -366,6 +426,8 @@ internal sealed class UsageHubSurface : Control
         QuotaWindow secondary = FindDisplayWindow(604800, 1, primary);
         primaryTarget = GetPercent(primary);
         secondaryTarget = GetPercent(secondary);
+        insights = UsageInsights.Build(snapshot, history, DateTimeOffset.UtcNow);
+        healthLabel = UsageInsights.GetHealthLabel(snapshot, history, DateTimeOffset.UtcNow);
         if (!animationsEnabled || entrance <= 0f)
         {
             primaryAnimated = primaryTarget;
@@ -470,6 +532,7 @@ internal sealed class UsageHubSurface : Control
         DrawText(g, "Usage Hub", "Microsoft YaHei UI", 23f, FontStyle.Bold, UiTheme.WithAlpha(palette.PrimaryText, alpha), 36, 24);
         string plan = snapshot == null || string.IsNullOrWhiteSpace(snapshot.PlanName) ? "ChatGPT / Codex" : "ChatGPT / Codex · " + snapshot.PlanName;
         DrawText(g, plan, "Microsoft YaHei UI", 9.5f, FontStyle.Regular, UiTheme.WithAlpha(palette.SecondaryText, alpha), 38, 58);
+        DrawText(g, "健康度 · " + healthLabel, "Microsoft YaHei UI", 8.5f, FontStyle.Bold, UiTheme.WithAlpha(GetHealthColor(), alpha), 38, 77);
 
         string status = GetStatusText(snapshot);
         Color statusColor = GetStatusColor(snapshot);
@@ -504,11 +567,11 @@ internal sealed class UsageHubSurface : Control
         int cardHeight = 188;
         QuotaWindow primary = FindDisplayWindow(18000, 0, null);
         QuotaWindow secondary = FindDisplayWindow(604800, 1, primary);
-        DrawMetricCard(g, new Rectangle(36, top, cardWidth, cardHeight), primary, palette.PrimaryAccent, primaryAnimated, "PRIMARY");
-        DrawMetricCard(g, new Rectangle(36 + cardWidth + gap, top, cardWidth, cardHeight), secondary, palette.SecondaryAccent, secondaryAnimated, "SECONDARY");
+        DrawMetricCard(g, new Rectangle(36, top, cardWidth, cardHeight), primary, FindInsight(primary), palette.PrimaryAccent, primaryAnimated, "PRIMARY");
+        DrawMetricCard(g, new Rectangle(36 + cardWidth + gap, top, cardWidth, cardHeight), secondary, FindInsight(secondary), palette.SecondaryAccent, secondaryAnimated, "SECONDARY");
     }
 
-    private void DrawMetricCard(Graphics g, Rectangle bounds, QuotaWindow window, Color accent, double animatedPercent, string badge)
+    private void DrawMetricCard(Graphics g, Rectangle bounds, QuotaWindow window, UsageInsight insight, Color accent, double animatedPercent, string badge)
     {
         using (GraphicsPath cardPath = RoundedRectangle(bounds, 14))
         using (SolidBrush cardBrush = new SolidBrush(UiTheme.WithAlpha(palette.Surface, 238)))
@@ -574,6 +637,11 @@ internal sealed class UsageHubSurface : Control
         DrawText(g, "下次重置", "Microsoft YaHei UI", 8f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 104);
         DrawText(g, FormatReset(window.ResetAt), "Consolas", 10f, FontStyle.Bold, palette.PrimaryText, textLeft, bounds.Top + 121);
         DrawText(g, FormatCountdown(window.ResetAt), "Microsoft YaHei UI", 8f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 145);
+        DrawText(g, insight == null ? "等待历史趋势" : insight.GetRateText(), "Consolas", 7.5f, FontStyle.Bold, GetInsightColor(insight), textLeft, bounds.Top + 161);
+        if (insight != null && insight.ProjectedExhaustionAt.HasValue)
+        {
+            DrawText(g, "预计 " + FormatForecast(insight.ProjectedExhaustionAt), "Microsoft YaHei UI", 7.5f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 176);
+        }
     }
 
     private void DrawTrendCard(Graphics g)
@@ -614,6 +682,10 @@ internal sealed class UsageHubSurface : Control
         {
             hasSeries = DrawSeries(g, plot, windows[index], colors[index], index) || hasSeries;
         }
+        if (hasSeries && animationsEnabled)
+        {
+            DrawTrendCursor(g, plot);
+        }
         if (!hasSeries)
         {
             DrawTextCentered(g, "成功刷新两次后，这里会绘制真实趋势", "Microsoft YaHei UI", 9f, FontStyle.Regular, palette.SecondaryText, plot.Left + plot.Width / 2, plot.Top + plot.Height / 2 - 6);
@@ -628,6 +700,18 @@ internal sealed class UsageHubSurface : Control
             }
             DrawText(g, FormatWindowLabel(windows[index]), "Consolas", 7.5f, FontStyle.Bold, colors[index], legendX + 10, bounds.Top + 17);
             legendX += 56;
+        }
+    }
+
+    private void DrawTrendCursor(Graphics g, Rectangle plot)
+    {
+        float progress = (float)((Math.Sin(phase * 0.55f) + 1d) / 2d);
+        float x = plot.Left + plot.Width * progress;
+        using (Pen cursor = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, 110), 1f))
+        using (SolidBrush marker = new SolidBrush(UiTheme.WithAlpha(palette.SecondaryAccent, 175)))
+        {
+            g.DrawLine(cursor, x, plot.Top, x, plot.Bottom);
+            g.FillEllipse(marker, x - 3, plot.Top - 3, 6, 6);
         }
     }
 
@@ -780,6 +864,86 @@ internal sealed class UsageHubSurface : Control
     private static double GetPercent(QuotaWindow window)
     {
         return window == null ? 0d : window.UsedPercent;
+    }
+
+    private UsageInsight FindInsight(QuotaWindow window)
+    {
+        if (window == null || insights == null)
+        {
+            return null;
+        }
+        foreach (UsageInsight insight in insights)
+        {
+            if (insight != null && insight.LimitWindowSeconds == window.LimitWindowSeconds)
+            {
+                return insight;
+            }
+        }
+        return null;
+    }
+
+    private Color GetHealthColor()
+    {
+        if (snapshot == null || snapshot.Status == UsageStatus.Loading)
+        {
+            return palette.SecondaryAccent;
+        }
+        if (snapshot.IsStale)
+        {
+            return palette.Warning;
+        }
+        if (snapshot.Status != UsageStatus.Live)
+        {
+            return palette.Error;
+        }
+        if (healthLabel == "额度紧张")
+        {
+            return palette.Error;
+        }
+        if (healthLabel == "接近阈值")
+        {
+            return palette.Warning;
+        }
+        return palette.Success;
+    }
+
+    private Color GetInsightColor(UsageInsight insight)
+    {
+        if (insight == null || !insight.HasRate)
+        {
+            return palette.SecondaryText;
+        }
+        if (insight.Direction == UsageTrendDirection.Rising)
+        {
+            return palette.Warning;
+        }
+        if (insight.Direction == UsageTrendDirection.Falling)
+        {
+            return palette.Success;
+        }
+        return palette.SecondaryAccent;
+    }
+
+    private static string FormatForecast(DateTimeOffset? projectedAt)
+    {
+        if (!projectedAt.HasValue)
+        {
+            return "暂无预测";
+        }
+        TimeSpan remaining = projectedAt.Value - DateTimeOffset.UtcNow;
+        if (remaining.TotalMinutes <= 0d)
+        {
+            return "即将达到";
+        }
+        if (remaining.TotalDays >= 1d)
+        {
+            return "约 " + Math.Max(1, (int)Math.Floor(remaining.TotalDays)).ToString(CultureInfo.InvariantCulture) + " 天后用尽";
+        }
+        if (remaining.TotalHours >= 1d)
+        {
+            return "约 " + Math.Max(1, (int)Math.Floor(remaining.TotalHours)).ToString(CultureInfo.InvariantCulture) + " 小时后用尽";
+        }
+        return "约 " + Math.Max(1, (int)Math.Floor(remaining.TotalMinutes)).ToString(CultureInfo.InvariantCulture) + " 分钟后用尽";
     }
 
     private static double Step(double current, double target)
