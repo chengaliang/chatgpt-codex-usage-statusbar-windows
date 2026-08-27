@@ -79,6 +79,7 @@ Start-Process -FilePath .\dist\SubscriptionStatus.exe -WorkingDirectory (Resolve
 
 - `src/`：原生 WinForms C# 源码
 - `scripts/`：构建和可选启动辅助脚本，包含 `build.ps1`
+- `assets/`：产品图标资源与可重复生成脚本
 - `dist/`：本地构建的 EXE 和 SHA-256 校验文件
 - 根目录 `SubscriptionStatus.exe`：兼容旧版本开机自启的转发 shim，日常启动请使用 `start-statusbar.cmd`
 - `docs/`：教程、设计预览和开发记录
@@ -117,9 +118,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 $env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p2-launcher.ps1
 ```
 
-它覆盖设置文件、启动项迁移、阈值通知、诊断脱敏、缓存/历史隐私、Usage Hub/详情/设置 DPI 标志、自绘面板入口和 SHA-256 校验，不会访问官方额度接口，也不会上传本机凭据。
+它覆盖设置文件、启动项迁移、阈值通知、诊断脱敏、缓存/历史隐私、Usage Hub/详情/设置 DPI 标志、自绘面板入口、启动聚焦、图标资源和 SHA-256 校验；P0/P1 不访问官方额度接口，测试不会上传本机凭据。
 
 ## 常见问题
 
@@ -133,7 +135,11 @@ $env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 
 ### 看不到窗口
 
-先查看 Windows 通知区域，双击本项目图标即可恢复。由于程序使用单实例保护，再次运行 `start-statusbar.cmd` 不会创建第二个窗口；如果托盘图标也不可见，再用任务管理器结束 `SubscriptionStatus.exe` 后重新启动。
+先查看 Windows 通知区域，双击统一的产品图标即可恢复。由于程序使用单实例保护，再次运行 `start-statusbar.cmd` 会聚焦已有窗口，不会创建第二个窗口；如果图标和窗口都不可见，程序现在会在启动构造失败时弹出通用修复提示。仍无法启动时，再用任务管理器结束 `SubscriptionStatus.exe` 后确认 `dist` 文件夹完整并重新运行启动器。
+
+### 图标为空或显示系统默认图标
+
+源码构建时先运行 `scripts\generate-icon.ps1`，再运行 `scripts\build.ps1`；脚本会把产品图标嵌入 `dist\SubscriptionStatus.exe` 和根目录兼容启动器。分发时请保持 `dist` 文件夹与启动脚本一起复制，不要只复制单个 shim 文件。
 
 ## 隐私边界
 

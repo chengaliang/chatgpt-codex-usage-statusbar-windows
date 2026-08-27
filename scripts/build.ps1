@@ -5,6 +5,7 @@ $sourceDirectory = Join-Path $root 'src'
 $distributionDirectory = Join-Path $root 'dist'
 $outputPath = Join-Path $distributionDirectory 'SubscriptionStatus.exe'
 $manifestPath = Join-Path $distributionDirectory 'SHA256SUMS.txt'
+$iconPath = Join-Path $root 'assets\ChatGPTCodexUsageStatusBar.ico'
 $legacySourcePath = Join-Path $PSScriptRoot 'LegacyLauncher.cs'
 $legacyOutputPath = Join-Path $root 'SubscriptionStatus.exe'
 
@@ -35,6 +36,9 @@ $sources = @(
 if ($sources.Count -eq 0) {
     throw "No C# source files found in $sourceDirectory."
 }
+if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+    throw "Application icon is missing: $iconPath. Run scripts\generate-icon.ps1 first."
+}
 
 Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
 
@@ -52,6 +56,7 @@ $compilerArguments = @(
     '/reference:System.Windows.Forms.dll'
     '/reference:System.Web.Extensions.dll'
     '/utf8output'
+    ('/win32icon:' + $iconPath)
     ('/out:' + $outputPath)
 )
 $compilerArguments += $sources
@@ -75,6 +80,7 @@ $legacyArguments = @(
     '/reference:System.dll'
     '/reference:System.Windows.Forms.dll'
     '/utf8output'
+    ('/win32icon:' + $iconPath)
     ('/out:' + $legacyOutputPath)
     $legacySourcePath
 )

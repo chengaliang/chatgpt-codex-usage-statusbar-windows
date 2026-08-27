@@ -17,12 +17,20 @@
 - 动效设置默认值、克隆持久化和关闭动效后的静态回退边界
 - GitHub 更新服务版本元数据和 SHA-256 正负样本
 
+`p2-launcher.ps1` 覆盖：
+
+- EXE 嵌入图标资源和有效尺寸
+- 首次启动后的响应状态与可见窗口句柄
+- 重复启动只保留一个实例并将焦点交给已有窗口
+- 根目录兼容启动器能够拉起 `dist` 主程序
+
 在仓库根目录编译后运行：
 
 ```powershell
 $env:STATUSBAR_EXE = (Resolve-Path .\dist\SubscriptionStatus.exe).Path
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p1-usage-hub.ps1
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p2-launcher.ps1
 ```
 
 脚本会临时修改当前用户的启动项并在结束时恢复原值，不会读取或上传 OAuth 凭据。

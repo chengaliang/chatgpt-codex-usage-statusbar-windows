@@ -2376,22 +2376,101 @@ internal sealed class StatusWindow : Form
 
 internal static class Program
 {
+    private const int SwRestore = 9;
+    private const int ExistingWindowWaitMilliseconds = 2000;
+    private const int ExistingWindowPollMilliseconds = 50;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr FindWindow(string className, string windowName);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     [STAThread]
     private static void Main()
     {
-        // 开机自启和手动启动可能同时发生，使用本地互斥体确保屏幕上只有一个状态栏。
-        bool createdNew;
-        using (Mutex mutex = new Mutex(true, "Local\\ChatGPTCodexUsageStatusBar", out createdNew))
+        try
         {
-            if (!createdNew)
+            // 开机自启和手动启动可能同时发生，使用本地互斥体确保屏幕上只有一个状态栏。
+            bool createdNew;
+            using (Mutex mutex = new Mutex(true, "Local\\ChatGPTCodexUsageStatusBar", out createdNew))
             {
-                return;
-            }
+                if (!createdNew)
+                {
+                    // 重复双击不再静默退出，直接唤起已经运行的隐藏或最小化窗口。
+                    FocusExistingInstance();
+                    return;
+                }
 
-            DpiSupport.Enable();
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new StatusWindow());
+                DpiSupport.Enable();
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += HandleUiThreadException;
+                Application.Run(new StatusWindow());
+            }
+        }
+        catch (Exception)
+        {
+            // winexe 默认没有控制台，启动构造失败时必须给出可操作的反馈，而不是让双击看起来毫无反应。
+            ShowStartupError();
+        }
+    }
+
+    /// <summary>
+    /// 将第二次启动转换为“显示并聚焦”，兼容用户把主窗口隐藏到托盘后的再次双击。
+    /// </summary>
+    private static void FocusExistingInstance()
+    {
+        try
+        {
+            // 互斥锁先于 WinForms 句柄创建，第二次双击可能正好落在首实例构造窗口期；
+            // 短暂轮询避免这类竞态再次表现为“没有反应”。
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(ExistingWindowWaitMilliseconds);
+            while (DateTime.UtcNow < deadline)
+            {
+                IntPtr handle = FindWindow(null, "ChatGPT quota");
+                if (handle != IntPtr.Zero)
+                {
+                    ShowWindow(handle, SwRestore);
+                    if (SetForegroundWindow(handle))
+                    {
+                        return;
+                    }
+                }
+                Thread.Sleep(ExistingWindowPollMilliseconds);
+            }
+        }
+        catch (Exception)
+        {
+            // 聚焦只是增强反馈，失败时不能影响已经运行的主实例。
+        }
+    }
+
+    /// <summary>
+    /// UI 线程未预期异常的统一提示。只展示修复方向，不泄露 OAuth、账户或本机路径。
+    /// </summary>
+    private static void HandleUiThreadException(object sender, ThreadExceptionEventArgs args)
+    {
+        ShowStartupError();
+    }
+
+    private static void ShowStartupError()
+    {
+        try
+        {
+            MessageBox.Show(
+                "状态栏启动失败。请确认完整保留 dist 文件夹，并重新运行 start-statusbar.cmd。\r\n\r\n如果已有托盘图标，可从“诊断中心”复制脱敏信息；否则请提交启动失败现象。",
+                "ChatGPT/Codex 状态栏",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        catch (Exception)
+        {
+            // 桌面会话不可用时无法显示对话框，保持进程安全退出即可。
         }
     }
 }

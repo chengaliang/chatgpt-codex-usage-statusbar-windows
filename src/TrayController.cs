@@ -9,6 +9,8 @@ internal sealed class TrayController : IDisposable
 {
     private readonly NotifyIcon notifyIcon;
     private readonly ContextMenuStrip menu;
+    private readonly Icon applicationIcon;
+    private readonly bool ownsApplicationIcon;
     private bool disposed;
 
     public TrayController(
@@ -96,12 +98,36 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(CreateItem("退出", delegate { exitApplication(); }));
 
         notifyIcon = new NotifyIcon();
-        notifyIcon.Icon = SystemIcons.Application;
+        applicationIcon = LoadApplicationIcon(out ownsApplicationIcon);
+        notifyIcon.Icon = applicationIcon;
         notifyIcon.Text = "ChatGPT/Codex 额度状态栏";
         notifyIcon.ContextMenuStrip = menu;
         notifyIcon.Visible = true;
         notifyIcon.DoubleClick += delegate(object sender, EventArgs args) { showWindow(); };
         UiTheme.StyleMenu(menu, ThemePalette.Create(ThemeMode.Dark));
+    }
+
+    /// <summary>
+    /// 优先读取当前 EXE 嵌入的产品图标，让托盘、任务栏预览和文件属性保持一致。
+    /// 图标读取失败时才回退系统默认图标，避免图标问题阻断额度状态栏启动。
+    /// </summary>
+    private static Icon LoadApplicationIcon(out bool ownsIcon)
+    {
+        ownsIcon = false;
+        try
+        {
+            Icon extracted = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (extracted != null)
+            {
+                ownsIcon = true;
+                return extracted;
+            }
+        }
+        catch (Exception)
+        {
+            // 部分精简 Windows 环境无法从资源读取图标，继续使用系统回退图标即可。
+        }
+        return SystemIcons.Application;
     }
 
     private static EventHandler CreateEventHandler(Action action)
@@ -180,5 +206,9 @@ internal sealed class TrayController : IDisposable
         notifyIcon.Visible = false;
         notifyIcon.Dispose();
         menu.Dispose();
+        if (ownsApplicationIcon)
+        {
+            applicationIcon.Dispose();
+        }
     }
 }

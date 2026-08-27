@@ -4,7 +4,7 @@
 
 ## 中文概览
 
-这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、状态呼吸、扫描线和额度风险色反馈，并可按本地历史估算消耗速度与预计耗尽时间。
+这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、状态呼吸、扫描线和额度风险色反馈，并可按本地历史估算消耗速度与预计耗尽时间。主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
@@ -66,6 +66,7 @@ Local build output is written to `dist\`; release downloads are kept separate fr
 | --- | --- |
 | `src/` | Native WinForms C# source code |
 | `scripts/` | Build and optional launch helpers |
+| `assets/` | Product icon source asset and deterministic generator |
 | `dist/` | Local executable and SHA-256 manifest |
 | `SubscriptionStatus.exe` | Small root compatibility shim for older startup entries |
 | `docs/` | Chinese quickstart, design notes and preview assets |
@@ -74,6 +75,7 @@ Local build output is written to `dist\`; release downloads are kept separate fr
 ### 2. Launch the mini bar
 
 Double-click [`start-statusbar.cmd`](start-statusbar.cmd), or run [`scripts/launcher.vbs`](scripts/launcher.vbs). The first launch enables startup for the current Windows user; the app keeps one compact bar above the taskbar and follows the monitor where it starts.
+The bar intentionally has no taskbar button or title bar. Its product icon is visible in the notification area; launching it a second time focuses the existing bar instead of opening a duplicate.
 Without a custom proxy, the app uses Windows system proxy settings or a direct connection. If your network needs Clash Verge or another local HTTP/HTTPS proxy, set `CLASH_MIXED_PROXY` before launching:
 
 ```powershell
@@ -102,6 +104,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
 The repository also includes a GitHub Actions Windows build so source changes are compiled on every push and pull request.
+
+If the icon asset is missing in a local checkout, regenerate it before compiling:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\generate-icon.ps1
+```
 
 ## Updating Safely
 
@@ -132,7 +140,11 @@ The app uses Windows system proxy settings or a direct connection by default. If
 
 ### The bar is not visible
 
-Run [`start-statusbar.cmd`](start-statusbar.cmd) again or double-click the tray icon. The app positions itself inside the current monitor work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
+Run [`start-statusbar.cmd`](start-statusbar.cmd) again or double-click the product icon in the notification area. If the process is already running, a second launch now restores and focuses the existing bar. The app positions itself inside the current monitor work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
+
+### Double-click appears to do nothing or the icon is generic
+
+Keep `dist\SubscriptionStatus.exe` next to its files and start it through [`start-statusbar.cmd`](start-statusbar.cmd). The build embeds the product icon into both EXEs; a missing `dist` folder or an incomplete manual copy can prevent the compatibility shim from reaching the main program. If initialization fails, the program now shows a generic repair message without exposing OAuth or local paths. Rebuild with `scripts\generate-icon.ps1` followed by `scripts\build.ps1` when distributing a source checkout.
 
 ### Startup or diagnostics
 

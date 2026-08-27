@@ -28,6 +28,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "p1 smoke failed with exit code $LASTEXITCODE"
           }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p2-launcher.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "p2 smoke failed with exit code $LASTEXITCODE"
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
