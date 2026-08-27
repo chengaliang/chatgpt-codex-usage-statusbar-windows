@@ -173,9 +173,31 @@ if ($null -eq $hubType -or $null -eq $hubSurfaceType) { throw 'Usage Hub present
 foreach ($name in @('SetData', 'BeginEntrance', 'AdvanceAnimation', 'SetRefreshing', 'PlayRefreshCelebration')) {
     if ($null -eq $hubSurfaceType.GetMethod($name)) { throw "UsageHubSurface method missing: $name" }
 }
+if ($null -eq $hubType.GetMethod('ApplyExternalRefresh')) { throw 'UsageHubForm external refresh method is missing' }
 $statusWindowType = $assembly.GetType('StatusWindow')
 if ($null -eq $statusWindowType.GetMethod('BeginRefreshCelebration', [Reflection.BindingFlags]'NonPublic,Instance')) {
     throw 'StatusWindow refresh celebration entry is missing'
+}
+$statusWindow = [Runtime.Serialization.FormatterServices]::GetUninitializedObject($statusWindowType)
+$statusSettingsField = $statusWindowType.GetField('settings', [Reflection.BindingFlags]'NonPublic,Instance')
+$statusSnapshotField = $statusWindowType.GetField('snapshot', [Reflection.BindingFlags]'NonPublic,Instance')
+$statusActiveField = $statusWindowType.GetField('refreshCelebrationActive', [Reflection.BindingFlags]'NonPublic,Instance')
+$statusProgressField = $statusWindowType.GetField('refreshCelebrationProgress', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $statusSettingsField -or $null -eq $statusSnapshotField -or $null -eq $statusActiveField -or $null -eq $statusProgressField) {
+    throw 'StatusWindow refresh celebration state is missing'
+}
+$statusSettingsField.SetValue($statusWindow, $settingsProbe.Clone())
+$statusSnapshotField.SetValue($statusWindow, $live.ToQuotaSnapshot())
+$beginStatusCelebration = $statusWindowType.GetMethod('BeginRefreshCelebration', [Reflection.BindingFlags]'NonPublic,Instance')
+$applyStatusResult = $statusWindowType.GetMethod('ApplyUsageResult', [Reflection.BindingFlags]'NonPublic,Instance')
+$beginStatusCelebration.Invoke($statusWindow, $null)
+if ([bool]$statusActiveField.GetValue($statusWindow)) { throw 'hidden StatusWindow should not start a refresh celebration' }
+$applyStatusResult.Invoke($statusWindow, [object[]]@($live.WithCachedState([DateTimeOffset]::Now.AddMinutes(-1))))
+$beginStatusCelebration.Invoke($statusWindow, $null)
+$failureSnapshot = $usageType.GetMethod('Failure').Invoke($null, [object[]]@('chatgpt-codex', [Enum]::Parse($statusType, 'NetworkError', $false), 'offline', [DateTimeOffset]::Now))
+$applyStatusResult.Invoke($statusWindow, [object[]]@($failureSnapshot))
+if ([bool]$statusActiveField.GetValue($statusWindow) -or [float]$statusProgressField.GetValue($statusWindow) -ne 0) {
+    throw 'cached or failed StatusWindow results should cancel an active refresh celebration'
 }
 $palette = $paletteType.GetMethod('Create').Invoke($null, [object[]]@([Enum]::Parse($themeType, 'Dark')))
 $hubSurfaceConstructor = $hubSurfaceType.GetConstructor([Type[]]@($paletteType, [bool]))
@@ -186,6 +208,19 @@ $burstProgressField = $hubSurfaceType.GetField('refreshBurstProgress', [Reflecti
 if ($null -eq $burstActiveField -or $null -eq $burstProgressField) { throw 'UsageHub refresh burst state is missing' }
 $hubSurface.PlayRefreshCelebration()
 if (-not [bool]$burstActiveField.GetValue($hubSurface)) { throw 'refresh celebration did not start after a live refresh' }
+$hubSurface.SetData($live, $null)
+if ([bool]$burstActiveField.GetValue($hubSurface) -or [float]$burstProgressField.GetValue($hubSurface) -ne 0) {
+    throw 'refresh celebration was not cancelled when new data arrived'
+}
+$hubSurface.PlayRefreshCelebration()
+$cachedLiveSnapshot = $live.WithCachedState([DateTimeOffset]::Now.AddMinutes(-1))
+$hubSurface.SetData($cachedLiveSnapshot, $null)
+if ([bool]$burstActiveField.GetValue($hubSurface)) { throw 'cached data should cancel an active refresh celebration' }
+$hubSurface.PlayRefreshCelebration()
+$hubSurface.SetRefreshing($true)
+if ([bool]$burstActiveField.GetValue($hubSurface)) { throw 'starting a refresh should cancel the previous celebration' }
+$hubSurface.SetRefreshing($false)
+$hubSurface.PlayRefreshCelebration()
 for ($frame = 0; $frame -lt 20; $frame++) { $hubSurface.AdvanceAnimation() }
 if ([bool]$burstActiveField.GetValue($hubSurface) -or [float]$burstProgressField.GetValue($hubSurface) -lt 0.99) {
     throw 'refresh celebration did not finish as a one-shot animation'
@@ -204,6 +239,13 @@ if ($hub.ShowInTaskbar -or $hub.AutoScaleMode.ToString() -ne 'Dpi' -or $hub.Clie
     throw 'UsageHubForm window flags, DPI mode or minimum canvas size are invalid'
 }
 if ($hub.Controls.Count -eq 0) { throw 'UsageHubForm did not build its drawing surface' }
+$hubSurfaceField = $hubType.GetField('surface', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $hubSurfaceField) { throw 'UsageHubForm surface field is missing' }
+$hub.ApplyExternalRefresh($live, $historyList)
+$externalSurface = $hubSurfaceField.GetValue($hub)
+if (-not [bool]$burstActiveField.GetValue($externalSurface)) { throw 'external live refresh did not start a Hub celebration' }
+$hub.ApplyExternalRefresh($cachedLiveSnapshot, $historyList)
+if ([bool]$burstActiveField.GetValue($externalSurface)) { throw 'external cached refresh did not cancel a Hub celebration' }
 $hub.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))

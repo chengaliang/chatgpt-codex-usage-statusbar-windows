@@ -386,6 +386,29 @@ internal sealed class UsageHubForm : Form
             }
         }
     }
+
+    /// <summary>
+    /// 接收主状态栏的刷新结果。当定时刷新、托盘刷新或 Hub 自己的请求完成时，已打开的 Usage Hub 都要立即
+    /// 显示同一份脱敏快照；只有在线成功结果会播放一次同步脉冲，缓存和失败结果只负责安静地清理旧脉冲。
+    /// 若 Hub 自己正在刷新，则由按钮回调负责最后一次播放，避免重复触发。
+    /// </summary>
+    public void ApplyExternalRefresh(UsageSnapshot refreshed, IList<HistoryPoint> refreshedHistory)
+    {
+        if (IsDisposed || refreshed == null)
+        {
+            return;
+        }
+
+        snapshot = refreshed.Clone();
+        history = refreshedHistory == null
+            ? new List<HistoryPoint>()
+            : new List<HistoryPoint>(refreshedHistory);
+        surface.SetData(snapshot, history);
+        if (!isRefreshing && refreshed.Status == UsageStatus.Live)
+        {
+            surface.PlayRefreshCelebration();
+        }
+    }
 }
 
 /// <summary>
@@ -426,6 +449,7 @@ internal sealed class UsageHubSurface : Control
 
     public void SetData(UsageSnapshot value, IList<HistoryPoint> points)
     {
+        CancelRefreshCelebration();
         snapshot = value == null ? UsageSnapshot.Loading("chatgpt-codex") : value.Clone();
         history = points == null ? new List<HistoryPoint>() : new List<HistoryPoint>(points);
         QuotaWindow primary = FindDisplayWindow(18000, 0, null);
@@ -456,6 +480,10 @@ internal sealed class UsageHubSurface : Control
     public void SetRefreshing(bool value)
     {
         refreshing = value;
+        if (value)
+        {
+            CancelRefreshCelebration();
+        }
         Invalidate();
     }
 
@@ -466,14 +494,19 @@ internal sealed class UsageHubSurface : Control
     {
         if (!animationsEnabled)
         {
-            refreshBurstActive = false;
-            refreshBurstProgress = 0f;
+            CancelRefreshCelebration();
             return;
         }
 
         refreshBurstProgress = 0f;
         refreshBurstActive = true;
         Invalidate();
+    }
+
+    private void CancelRefreshCelebration()
+    {
+        refreshBurstActive = false;
+        refreshBurstProgress = 0f;
     }
 
     public void AdvanceAnimation()

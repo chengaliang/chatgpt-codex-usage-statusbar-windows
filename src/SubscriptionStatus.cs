@@ -1377,6 +1377,7 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private void BeginVisualRefresh()
     {
+        CancelRefreshCelebration();
         if (!settings.AnimationsEnabled)
         {
             visualAnimationActive = false;
@@ -1526,6 +1527,7 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private void ApplyUsageResult(UsageSnapshot result)
     {
+        CancelRefreshCelebration();
         if (result == null)
         {
             ApplyQueryFailure(UsageStatus.UnknownError, "empty_result");
@@ -1542,6 +1544,7 @@ internal sealed class StatusWindow : Form
             usageCache.TrySave(result, out cacheError);
             historyStore.Append(result);
             EvaluateNotifications(snapshot);
+            NotifyUsageHubRefresh(result);
             return;
         }
 
@@ -1550,6 +1553,7 @@ internal sealed class StatusWindow : Form
             usageSnapshot = result;
             snapshot = result.ToQuotaSnapshot();
             UpdateVisualTargets(true);
+            NotifyUsageHubRefresh(result);
             return;
         }
 
@@ -1562,18 +1566,21 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private void ApplyQueryFailure(UsageStatus status, string errorCode)
     {
+        CancelRefreshCelebration();
         DateTimeOffset queriedAt = DateTimeOffset.Now;
         if (usageSnapshot != null && usageSnapshot.Windows != null && usageSnapshot.Windows.Count > 0)
         {
             usageSnapshot = usageSnapshot.WithFailure(status, errorCode, queriedAt);
             snapshot = usageSnapshot.ToQuotaSnapshot();
             UpdateVisualTargets(true);
+            NotifyUsageHubRefresh(usageSnapshot);
             return;
         }
 
         usageSnapshot = UsageSnapshot.Failure("chatgpt-codex", status, errorCode, queriedAt);
         snapshot = usageSnapshot.ToQuotaSnapshot();
         UpdateVisualTargets(true);
+        NotifyUsageHubRefresh(usageSnapshot);
     }
 
     /// <summary>
@@ -1582,10 +1589,11 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private void BeginRefreshCelebration()
     {
-        if (!settings.AnimationsEnabled)
+        if (!settings.AnimationsEnabled || !Visible)
         {
-            refreshCelebrationActive = false;
-            refreshCelebrationProgress = 0f;
+            CancelRefreshCelebration();
+            visualAnimationActive = false;
+            UpdateVisualTimerInterval();
             return;
         }
 
@@ -1593,6 +1601,30 @@ internal sealed class StatusWindow : Form
         refreshCelebrationActive = true;
         visualAnimationActive = true;
         UpdateVisualTimerInterval();
+    }
+
+    private void CancelRefreshCelebration()
+    {
+        refreshCelebrationActive = false;
+        refreshCelebrationProgress = 0f;
+    }
+
+    private void NotifyUsageHubRefresh(UsageSnapshot result)
+    {
+        if (usageHubForm == null || usageHubForm.IsDisposed || result == null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Usage Hub 是可选窗口，绘制同步失败不能影响主状态栏已经完成的额度刷新。
+            usageHubForm.ApplyExternalRefresh(result, historyStore.Load());
+        }
+        catch (Exception)
+        {
+            // Hub 关闭或正在释放时忽略竞态，主刷新结果仍保留在状态栏和缓存中。
+        }
     }
 
     private void EvaluateNotifications(QuotaSnapshot result)
