@@ -59,11 +59,15 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 
 重置时间显示 `MM/dd HH:mm`，悬停状态栏可以查看脱敏账户后缀和错误原因。
 
+状态栏窗口不会出现在 `Alt+Tab` 切换列表中。点击右上角 `×` 会隐藏到 Windows 通知区域，双击托盘图标可以恢复；只有在托盘或右键菜单选择“退出”才会结束程序。
+
 ## 开机自启与诊断
 
 第一次启动会默认开启当前 Windows 用户的开机自启，不需要管理员权限。状态栏右键菜单中的“开机自启”可以随时关闭或重新开启；程序会记住你的选择，不会在下次启动强行改回。
 
 右键选择“运行诊断”会先重新查询一次，再显示 OAuth 配置、计划、网络模式、额度窗口数量、最近查询时间和启动项状态。选择“复制诊断信息”可复制一份适合提交 Issue 的脱敏摘要，其中不包含 Token、账户 ID、代理地址或完整响应。
+
+右键选择“设置”可以调整自动刷新周期（1/5/10/15/30/60 分钟）、背景实色或两档透明度、是否记住窗口位置，以及是否在额度达到阈值时弹出通知。透明度采用有限档位，保证文字和点击区域始终清晰可用。
 
 ## 操作方式
 
@@ -71,11 +75,11 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | --- | --- |
 | 移动 | 拖动状态栏空白区域 |
 | 手动刷新 | 点击圆形箭头 |
-| 关闭 | 点击 `×` |
+| 隐藏到托盘 | 点击 `×`，程序继续在通知区域运行 |
 | 查看详情 | 鼠标悬停 |
-| 选项与诊断 | 右键状态栏 |
+| 设置、选项与诊断 | 右键状态栏或托盘图标 |
 
-程序每 5 分钟自动刷新一次。拖动过窗口后，自动定位不会再抢回你选择的位置。
+程序默认每 5 分钟自动刷新一次，也可以在设置中选择其他周期。拖动过窗口后，自动定位不会再抢回你选择的位置；开启“记住上次位置”后，下次启动会恢复该位置。
 
 ## 从源码编译
 
@@ -83,6 +87,7 @@ Windows 自带 .NET Framework C# 编译器，可以直接编译：
 
 ```powershell
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
 & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
   /out:SubscriptionStatus.exe `
   /reference:System.dll `
@@ -91,10 +96,21 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
   /reference:System.Windows.Forms.dll `
   /reference:System.Net.Http.dll `
   /reference:System.Web.Extensions.dll `
-  .\SubscriptionStatus.cs
+  $sources
 ```
 
 编译完成后双击 `start-statusbar.cmd` 即可启动。仓库中的 GitHub Actions 也会在 Windows runner 上执行同一套编译检查。
+
+## 本地回归
+
+修改源码后可以运行仓库自带的 P0 smoke：
+
+```powershell
+$env:STATUSBAR_EXE = (Resolve-Path .\SubscriptionStatus.exe).Path
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Smoke\p0-settings.ps1
+```
+
+它覆盖设置文件、启动项迁移、阈值通知和诊断脱敏，不会访问官方接口，也不会上传本机凭据。
 
 ## 常见问题
 
@@ -108,7 +124,7 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 ### 看不到窗口
 
-再次运行 `start-statusbar.cmd`。程序会把窗口放回主屏工作区右下角；如果之前拖到其他位置，使用任务管理器结束 `SubscriptionStatus.exe` 后重新启动即可。
+先查看 Windows 通知区域，双击本项目图标即可恢复。由于程序使用单实例保护，再次运行 `start-statusbar.cmd` 不会创建第二个窗口；如果托盘图标也不可见，再用任务管理器结束 `SubscriptionStatus.exe` 后重新启动。
 
 ## 隐私边界
 

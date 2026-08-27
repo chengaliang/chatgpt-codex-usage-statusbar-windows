@@ -538,24 +538,29 @@ internal sealed class StatusWindow : Form
 {
     private const int WindowWidth = 320;
     private const int WindowHeight = 40;
-    private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string SettingsRegistryPath = @"Software\ChatGPTCodexUsageStatusBar";
-    private const string StartupValueName = "ChatGPTCodexUsageStatusBar";
-    private const string StartupConfiguredValueName = "ChatGPTCodexUsageStatusBarConfigured";
     private const string ProjectUrl = "https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows";
     private readonly Rectangle closeArea = new Rectangle(WindowWidth - 24, 11, 18, 18);
     private readonly Rectangle refreshArea = new Rectangle(WindowWidth - 47, 11, 18, 18);
     private readonly OfficialQuotaService quotaService;
-    private readonly System.Windows.Forms.Timer refreshTimer;
+    private readonly SettingsStore settingsStore;
+    private readonly AppSettings settings;
+    private readonly RefreshScheduler refreshScheduler;
     private readonly CancellationTokenSource cancellation;
     private readonly ToolTip toolTip;
     private readonly ContextMenuStrip contextMenu;
+    private readonly StartupManager startupManager;
+    private readonly TrayController trayController;
+    private readonly NotificationEvaluator notificationEvaluator;
+    private readonly DiagnosticsService diagnosticsService;
     private ToolStripMenuItem autoStartMenuItem;
+    private readonly IList<ToolStripMenuItem> refreshIntervalItems = new List<ToolStripMenuItem>();
+    private readonly IList<ToolStripMenuItem> backgroundStyleItems = new List<ToolStripMenuItem>();
     private QuotaSnapshot snapshot;
     private bool isRefreshing;
     private bool userMoved;
     private bool autoStartEnabled;
     private string autoStartError;
+    private bool exitRequested;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -592,10 +597,27 @@ internal sealed class StatusWindow : Form
         }
 
         quotaService = new OfficialQuotaService();
+        settingsStore = new SettingsStore();
+        settings = settingsStore.Load();
         cancellation = new CancellationTokenSource();
         snapshot = QuotaSnapshot.Loading();
+        notificationEvaluator = new NotificationEvaluator();
+        diagnosticsService = new DiagnosticsService();
+        startupManager = new StartupManager(Application.ExecutablePath);
         autoStartError = string.Empty;
-        InitializeAutoStart();
+        bool startupEnabled;
+        string startupError;
+        if (!startupManager.TryGetEnabled(out startupEnabled, out startupError))
+        {
+            autoStartEnabled = false;
+            autoStartError = startupError;
+        }
+        else
+        {
+            autoStartEnabled = startupEnabled;
+        }
+        settings.AutoStartEnabled = autoStartEnabled;
+        ApplyBackgroundStyle();
         contextMenu = CreateContextMenu();
         ContextMenuStrip = contextMenu;
         toolTip = new ToolTip();
@@ -604,109 +626,15 @@ internal sealed class StatusWindow : Form
         toolTip.ReshowDelay = 100;
         toolTip.SetToolTip(this, BuildTooltipText());
 
-        refreshTimer = new System.Windows.Forms.Timer();
-        refreshTimer.Interval = 5 * 60 * 1000;
-        refreshTimer.Tick += async delegate(object sender, EventArgs args) { await RefreshQuotaSafelyAsync(); };
-        refreshTimer.Start();
-    }
-
-    /// <summary>
-    /// 初始化当前用户的启动项。第一次运行默认启用，之后尊重用户在右键菜单中的选择。
-    /// 使用 HKCU 不需要管理员权限，也不会影响其他 Windows 用户的登录行为。
-    /// </summary>
-    private void InitializeAutoStart()
-    {
-        try
-        {
-            using (RegistryKey runKey = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
-            using (RegistryKey settingsKey = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath))
-            {
-                if (runKey == null || settingsKey == null)
-                {
-                    autoStartError = "无法访问当前用户启动项";
-                    return;
-                }
-
-                // 0.2.0 之前曾把配置标记误放在 Run 键，先迁移并删除它，避免 Windows 把“1”当成启动命令。
-                object legacyConfigured = runKey.GetValue(StartupConfiguredValueName);
-                object configured = settingsKey.GetValue(StartupConfiguredValueName);
-                if (configured == null && legacyConfigured != null)
-                {
-                    settingsKey.SetValue(StartupConfiguredValueName, legacyConfigured, RegistryValueKind.String);
-                    configured = legacyConfigured;
-                }
-                if (legacyConfigured != null)
-                {
-                    runKey.DeleteValue(StartupConfiguredValueName, false);
-                }
-
-                if (configured == null)
-                {
-                    runKey.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
-                    settingsKey.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
-                    autoStartEnabled = true;
-                    return;
-                }
-
-                string command = runKey.GetValue(StartupValueName) as string;
-                autoStartEnabled = !string.IsNullOrWhiteSpace(command);
-                if (autoStartEnabled && !string.Equals(command, GetStartupCommand(), StringComparison.OrdinalIgnoreCase))
-                {
-                    // 程序被移动后修复旧路径，避免开机启动指向不存在的文件。
-                    runKey.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
-                }
-            }
-        }
-        catch (Exception)
-        {
-            autoStartEnabled = false;
-            autoStartError = "无法写入当前用户启动项";
-        }
-    }
-
-    private static string GetStartupCommand()
-    {
-        // Application.ExecutablePath 来自当前进程，双引号保证安装路径含空格时仍能正确启动。
-        return "\"" + Application.ExecutablePath + "\"";
-    }
-
-    /// <summary>
-    /// 更新当前用户的启动项并保留配置标记，使用户关闭自启后不会在下次启动被强制打开。
-    /// </summary>
-    private bool TrySetAutoStart(bool enabled)
-    {
-        try
-        {
-            using (RegistryKey runKey = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
-            using (RegistryKey settingsKey = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath))
-            {
-                if (runKey == null || settingsKey == null)
-                {
-                    autoStartError = "无法访问当前用户启动项";
-                    return false;
-                }
-
-                if (enabled)
-                {
-                    runKey.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
-                }
-                else
-                {
-                    runKey.DeleteValue(StartupValueName, false);
-                }
-
-                runKey.DeleteValue(StartupConfiguredValueName, false);
-                settingsKey.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
-                autoStartEnabled = enabled;
-                autoStartError = string.Empty;
-                return true;
-            }
-        }
-        catch (Exception)
-        {
-            autoStartError = "无法更新当前用户启动项";
-            return false;
-        }
+        refreshScheduler = new RefreshScheduler(settings.RefreshIntervalMinutes, RefreshQuotaSafelyAsync);
+        refreshScheduler.Start();
+        trayController = new TrayController(
+            ShowFromTray,
+            RefreshFromTray,
+            ShowSettings,
+            RunDiagnostics,
+            OpenProjectPage,
+            ExitApplication);
     }
 
     /// <summary>
@@ -720,21 +648,56 @@ internal sealed class StatusWindow : Form
         ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
         refreshItem.Click += async delegate(object sender, EventArgs args) { await RefreshQuotaSafelyAsync(); };
 
+        ToolStripMenuItem intervalMenu = new ToolStripMenuItem("刷新周期");
+        foreach (int minutes in AppSettings.GetSupportedRefreshIntervals())
+        {
+            ToolStripMenuItem intervalItem = new ToolStripMenuItem(minutes + " 分钟");
+            intervalItem.Tag = minutes;
+            intervalItem.Checked = settings.RefreshIntervalMinutes == minutes;
+            intervalItem.Click += delegate(object sender, EventArgs args)
+            {
+                ToolStripMenuItem selected = sender as ToolStripMenuItem;
+                if (selected != null)
+                {
+                    ApplyRefreshInterval((int)selected.Tag);
+                }
+            };
+            refreshIntervalItems.Add(intervalItem);
+            intervalMenu.DropDownItems.Add(intervalItem);
+        }
+
+        ToolStripMenuItem styleMenu = new ToolStripMenuItem("背景样式");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.Opaque, "实色");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.SemiTransparent, "半透明");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.HighTransparency, "高透明");
+
         autoStartMenuItem = new ToolStripMenuItem("开机自启");
         autoStartMenuItem.CheckOnClick = true;
         autoStartMenuItem.Checked = autoStartEnabled;
         autoStartMenuItem.Click += delegate(object sender, EventArgs args)
         {
             bool requested = autoStartMenuItem.Checked;
-            if (!TrySetAutoStart(requested))
+            string startupError;
+            if (!startupManager.TrySetEnabled(requested, out startupError))
             {
                 autoStartMenuItem.Checked = autoStartEnabled;
+                autoStartError = startupError;
                 MessageBox.Show(this, autoStartError, "开机自启", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            else
+            {
+                autoStartEnabled = requested;
+                autoStartError = string.Empty;
+                settings.AutoStartEnabled = requested;
+                SaveSettings();
             }
         };
 
         ToolStripMenuItem diagnosticsItem = new ToolStripMenuItem("运行诊断");
         diagnosticsItem.Click += RunDiagnostics;
+
+        ToolStripMenuItem settingsItem = new ToolStripMenuItem("设置");
+        settingsItem.Click += delegate(object sender, EventArgs args) { ShowSettings(); };
 
         ToolStripMenuItem copyDiagnosticsItem = new ToolStripMenuItem("复制诊断信息");
         copyDiagnosticsItem.Click += delegate(object sender, EventArgs args) { CopyDiagnosticReport(); };
@@ -743,11 +706,14 @@ internal sealed class StatusWindow : Form
         projectItem.Click += delegate(object sender, EventArgs args) { OpenProjectPage(); };
 
         ToolStripMenuItem exitItem = new ToolStripMenuItem("退出");
-        exitItem.Click += delegate(object sender, EventArgs args) { Close(); };
+        exitItem.Click += delegate(object sender, EventArgs args) { ExitApplication(); };
 
         menu.Items.Add(refreshItem);
+        menu.Items.Add(intervalMenu);
+        menu.Items.Add(styleMenu);
         menu.Items.Add(autoStartMenuItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(settingsItem);
         menu.Items.Add(diagnosticsItem);
         menu.Items.Add(copyDiagnosticsItem);
         menu.Items.Add(new ToolStripSeparator());
@@ -761,8 +727,11 @@ internal sealed class StatusWindow : Form
         get
         {
             const int CS_DROPSHADOW = 0x00020000;
+            const int WS_EX_TOOLWINDOW = 0x00000080;
             CreateParams parameters = base.CreateParams;
             parameters.ClassStyle |= CS_DROPSHADOW;
+            // 工具窗口不进入 Alt+Tab，同时保留状态栏的鼠标和右键交互。
+            parameters.ExStyle |= WS_EX_TOOLWINDOW;
             return parameters;
         }
     }
@@ -784,6 +753,7 @@ internal sealed class StatusWindow : Form
                 isRefreshing = false;
                 snapshot = QuotaSnapshot.Failure("查询失败", "状态栏启动失败，请点击刷新重试");
                 toolTip.SetToolTip(this, BuildTooltipText());
+                trayController.SetStatus(BuildTrayStatus());
                 Invalidate();
             }
         }
@@ -793,6 +763,12 @@ internal sealed class StatusWindow : Form
     {
         if (userMoved || !IsHandleCreated)
         {
+            return;
+        }
+
+        if (settings.RestorePosition && settings.HasSavedPosition && IsSavedPositionVisible())
+        {
+            SetWindowPos(Handle, IntPtr.Zero, settings.PositionX, settings.PositionY, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
             return;
         }
 
@@ -811,15 +787,226 @@ internal sealed class StatusWindow : Form
         SetWindowPos(Handle, IntPtr.Zero, left, top, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
     }
 
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (!exitRequested && e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
+        base.OnFormClosing(e);
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        refreshTimer.Stop();
+        RememberPosition();
+        refreshScheduler.Stop();
+        refreshScheduler.Dispose();
         cancellation.Cancel();
         quotaService.Dispose();
         cancellation.Dispose();
         toolTip.Dispose();
         contextMenu.Dispose();
+        trayController.Dispose();
         base.OnFormClosed(e);
+    }
+
+    private void HideToTray()
+    {
+        RememberPosition();
+        Hide();
+        trayController.SetStatus(BuildTrayStatus());
+    }
+
+    private bool IsSavedPositionVisible()
+    {
+        Rectangle saved = new Rectangle(settings.PositionX, settings.PositionY, Width, Height);
+        foreach (Screen screen in Screen.AllScreens)
+        {
+            Rectangle visiblePart = Rectangle.Intersect(saved, screen.WorkingArea);
+            if (visiblePart.Width >= Math.Min(Width, 80) && visiblePart.Height >= Math.Min(Height, 20))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void RememberPosition()
+    {
+        if (!settings.RestorePosition || !IsHandleCreated || WindowState != FormWindowState.Normal)
+        {
+            return;
+        }
+
+        settings.HasSavedPosition = true;
+        settings.PositionX = Left;
+        settings.PositionY = Top;
+        string error;
+        settingsStore.TrySave(settings, out error);
+    }
+
+    private void ShowFromTray()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        Show();
+        WindowState = FormWindowState.Normal;
+        Activate();
+        trayController.SetStatus(BuildTrayStatus());
+    }
+
+    private void ExitApplication()
+    {
+        exitRequested = true;
+        Close();
+    }
+
+    private async void RefreshFromTray()
+    {
+        await RefreshQuotaSafelyAsync();
+    }
+
+    private string BuildTrayStatus()
+    {
+        if (snapshot == null || !snapshot.Success)
+        {
+            return "ChatGPT/Codex 额度状态栏 · 等待刷新";
+        }
+        return "ChatGPT/Codex 额度状态栏 · " + (isRefreshing ? "刷新中" : "状态正常");
+    }
+
+    private void ShowSettings()
+    {
+        using (SettingsForm form = new SettingsForm(settings))
+        {
+            if (form.ShowDialog(this) != DialogResult.OK || form.Result == null)
+            {
+                return;
+            }
+
+            AppSettings selected = form.Result;
+            string startupError;
+            if (!startupManager.TrySetEnabled(selected.AutoStartEnabled, out startupError))
+            {
+                MessageBox.Show(this, startupError, "开机启动", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            CopySettings(selected);
+            autoStartEnabled = selected.AutoStartEnabled;
+            autoStartError = string.Empty;
+            autoStartMenuItem.Checked = autoStartEnabled;
+            refreshScheduler.SetInterval(settings.RefreshIntervalMinutes);
+            UpdateRefreshIntervalChecks();
+            UpdateBackgroundStyleChecks();
+            ApplyBackgroundStyle();
+            SaveSettings();
+            toolTip.SetToolTip(this, BuildTooltipText());
+            trayController.SetStatus(BuildTrayStatus());
+            Invalidate();
+        }
+    }
+
+    private void CopySettings(AppSettings source)
+    {
+        settings.RefreshIntervalMinutes = source.RefreshIntervalMinutes;
+        settings.AutoStartEnabled = source.AutoStartEnabled;
+        settings.BackgroundStyle = source.BackgroundStyle;
+        settings.NotificationsEnabled = source.NotificationsEnabled;
+        settings.NotificationThresholdPercent = source.NotificationThresholdPercent;
+        settings.RestorePosition = source.RestorePosition;
+        settings.HasSavedPosition = source.HasSavedPosition;
+        settings.PositionX = source.PositionX;
+        settings.PositionY = source.PositionY;
+        settings.Normalize();
+    }
+
+    private void AddBackgroundStyleItem(ToolStripMenuItem parent, BackgroundStyle style, string text)
+    {
+        ToolStripMenuItem item = new ToolStripMenuItem(text);
+        item.Tag = style;
+        item.Checked = settings.BackgroundStyle == style;
+        item.Click += delegate(object sender, EventArgs args)
+        {
+            ToolStripMenuItem selected = sender as ToolStripMenuItem;
+            if (selected != null)
+            {
+                ApplyBackgroundStyle((BackgroundStyle)selected.Tag);
+            }
+        };
+        backgroundStyleItems.Add(item);
+        parent.DropDownItems.Add(item);
+    }
+
+    private void ApplyRefreshInterval(int minutes)
+    {
+        if (!AppSettings.IsSupportedRefreshInterval(minutes))
+        {
+            return;
+        }
+
+        settings.RefreshIntervalMinutes = minutes;
+        settings.Normalize();
+        refreshScheduler.SetInterval(settings.RefreshIntervalMinutes);
+        UpdateRefreshIntervalChecks();
+        SaveSettings();
+    }
+
+    private void ApplyBackgroundStyle(BackgroundStyle style)
+    {
+        settings.BackgroundStyle = style;
+        settings.Normalize();
+        ApplyBackgroundStyle();
+        UpdateBackgroundStyleChecks();
+        SaveSettings();
+        Invalidate();
+    }
+
+    private void ApplyBackgroundStyle()
+    {
+        switch (settings.BackgroundStyle)
+        {
+            case BackgroundStyle.SemiTransparent:
+                Opacity = 0.85d;
+                break;
+            case BackgroundStyle.HighTransparency:
+                Opacity = 0.65d;
+                break;
+            default:
+                Opacity = 1.0d;
+                break;
+        }
+    }
+
+    private void UpdateRefreshIntervalChecks()
+    {
+        foreach (ToolStripMenuItem item in refreshIntervalItems)
+        {
+            item.Checked = (int)item.Tag == settings.RefreshIntervalMinutes;
+        }
+    }
+
+    private void UpdateBackgroundStyleChecks()
+    {
+        foreach (ToolStripMenuItem item in backgroundStyleItems)
+        {
+            item.Checked = (BackgroundStyle)item.Tag == settings.BackgroundStyle;
+        }
+    }
+
+    private void SaveSettings()
+    {
+        string error;
+        if (!settingsStore.TrySave(settings, out error) && !string.IsNullOrWhiteSpace(error))
+        {
+            MessageBox.Show(this, error, "保存设置", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private async Task RefreshQuotaAsync()
@@ -837,6 +1024,7 @@ internal sealed class StatusWindow : Form
             if (!cancellation.IsCancellationRequested)
             {
                 snapshot = result;
+                EvaluateNotifications(result);
             }
         }
         catch (Exception)
@@ -852,6 +1040,7 @@ internal sealed class StatusWindow : Form
             {
                 isRefreshing = false;
                 toolTip.SetToolTip(this, BuildTooltipText());
+                trayController.SetStatus(BuildTrayStatus());
                 Invalidate();
                 // 某些无边框窗口管理器会在异步首帧后重置位置，查询完成后再校正一次。
                 PositionMiniWindow();
@@ -875,8 +1064,25 @@ internal sealed class StatusWindow : Form
                 isRefreshing = false;
                 snapshot = QuotaSnapshot.Failure("查询失败", "状态栏未能完成刷新");
                 toolTip.SetToolTip(this, BuildTooltipText());
+                trayController.SetStatus(BuildTrayStatus());
                 Invalidate();
             }
+        }
+    }
+
+    private void EvaluateNotifications(QuotaSnapshot result)
+    {
+        IList<UsageNotification> notifications = notificationEvaluator.Evaluate(
+            result,
+            settings.NotificationThresholdPercent);
+        if (!settings.NotificationsEnabled)
+        {
+            return;
+        }
+
+        foreach (UsageNotification notification in notifications)
+        {
+            trayController.ShowNotification(notification.Title, notification.Message);
         }
     }
 
@@ -885,32 +1091,13 @@ internal sealed class StatusWindow : Form
     /// </summary>
     private string BuildDiagnosticReport()
     {
-        StringBuilder report = new StringBuilder();
-        report.AppendLine("ChatGPT/Codex 状态栏诊断");
-        report.AppendLine();
-        report.AppendLine("系统：" + Environment.OSVersion.VersionString);
-        report.AppendLine("运行时：.NET " + Environment.Version.ToString());
-        report.AppendLine("进程：" + (IntPtr.Size * 8).ToString(CultureInfo.InvariantCulture) + " 位");
-        report.AppendLine(quotaService.GetCredentialDiagnostic());
-        report.AppendLine(quotaService.GetProxyDiagnostic());
-        report.AppendLine("查询状态：" + snapshot.StatusText);
-        report.AppendLine("计划显示：" + DiagnosticSanitizer.PlanName(snapshot.PlanName));
-        report.AppendLine("额度窗口：" + (snapshot.Windows == null ? 0 : snapshot.Windows.Count).ToString(CultureInfo.InvariantCulture));
-        report.AppendLine("最近查询：" + (snapshot.QueriedAt.HasValue
-            ? snapshot.QueriedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
-            : "未查询"));
-        report.AppendLine("开机自启：" + (autoStartEnabled ? "已开启" : "已关闭"));
-        if (!string.IsNullOrWhiteSpace(autoStartError))
-        {
-            report.AppendLine("启动项：" + autoStartError);
-        }
-        if (!snapshot.Success && !string.IsNullOrWhiteSpace(snapshot.ErrorText))
-        {
-            report.AppendLine("错误：" + snapshot.ErrorText);
-        }
-        report.AppendLine();
-        report.AppendLine("诊断信息不包含 Token、账户 ID、代理地址或完整响应。");
-        return report.ToString();
+        return diagnosticsService.Build(
+            snapshot,
+            quotaService.GetCredentialDiagnostic(),
+            quotaService.GetProxyDiagnostic(),
+            autoStartEnabled,
+            !string.IsNullOrWhiteSpace(autoStartError),
+            settings);
     }
 
     private async void RunDiagnostics(object sender, EventArgs e)
@@ -1111,7 +1298,7 @@ internal sealed class StatusWindow : Form
         {
             text += "\r\n" + snapshot.ErrorText;
         }
-        text += "\r\n右键：选项、开机自启和诊断";
+        text += "\r\n右键：刷新周期、背景样式、开机自启和诊断";
         return text;
     }
 
@@ -1207,7 +1394,7 @@ internal sealed class StatusWindow : Form
         }
         if (closeArea.Contains(e.Location))
         {
-            Close();
+            HideToTray();
             return;
         }
         if (refreshArea.Contains(e.Location))

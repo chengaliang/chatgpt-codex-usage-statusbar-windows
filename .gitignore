@@ -17,6 +17,11 @@ obj/
 *.user
 .vs/
 
+# Local application settings.
+settings.json
+settings.json.tmp
+settings.json.bak
+
 # Local credentials and environment files.
 .env
 .env.*

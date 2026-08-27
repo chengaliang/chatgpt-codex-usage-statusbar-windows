@@ -30,6 +30,8 @@
 - **Local OAuth only**: reads `%USERPROFILE%\.codex\auth.json` or `%CODEX_HOME%\auth.json`; never writes credentials back.
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
+- **Tray-first workflow**: closing the bar hides it to the notification area instead of killing the process; double-click the tray icon to restore it, and use the tray menu to refresh, configure or exit.
+- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, opaque or two transparency levels, optional position restore, and opt-in threshold notifications.
 - **Startup & diagnostics**: first launch enables current-user startup by default; right-click to toggle it, run a fresh health check, copy a redacted issue report, or open the project page.
 - **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
 
@@ -47,7 +49,7 @@ The app expects ChatGPT OAuth mode and an `auth.json` under the Codex home direc
 
 ## Download
 
-For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.2.0](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/download/v0.2.0/SubscriptionStatus.exe).
+For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from the latest release](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/latest).
 The executable is also included in the repository for source review and offline use.
 
 ### 2. Launch the mini bar
@@ -64,11 +66,11 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | --- | --- |
 | Move | Drag any empty part of the bar |
 | Refresh | Click the circular-arrow icon |
-| Close | Click the `×` icon |
+| Hide | Click the `×` icon; the process remains in the notification area |
 | Details | Hover over the bar |
-| Options | Right-click the bar for startup and diagnostics |
+| Options | Right-click the bar or tray icon for settings and diagnostics |
 
-The bar refreshes automatically every five minutes.
+The default refresh cycle is five minutes. Change it, background transparency, position restore, startup and notifications from **设置**. To exit completely, choose **退出** from the bar or tray menu.
 
 ## Build From Source
 
@@ -76,6 +78,7 @@ A Windows machine with .NET Framework 4.5+ can compile the WinForms source with 
 
 ```powershell
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
 & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
   /out:SubscriptionStatus.exe `
   /reference:System.dll `
@@ -84,7 +87,7 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
   /reference:System.Windows.Forms.dll `
   /reference:System.Net.Http.dll `
   /reference:System.Web.Extensions.dll `
-  .\SubscriptionStatus.cs
+  $sources
 ```
 
 The repository also includes a GitHub Actions Windows build so source changes are compiled on every push and pull request.

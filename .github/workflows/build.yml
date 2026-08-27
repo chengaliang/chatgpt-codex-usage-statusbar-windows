@@ -16,6 +16,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $sources = @(Get-ChildItem -File -Filter *.cs | Select-Object -ExpandProperty FullName)
+          if ($sources.Count -eq 0) {
+            throw 'No C# source files found in repository root.'
+          }
           & $csc /nologo /target:winexe /platform:anycpu /optimize+ /warnaserror /utf8output `
             /out:SubscriptionStatus.exe `
             /reference:System.dll `
@@ -24,7 +28,7 @@ jobs:
             /reference:System.Windows.Forms.dll `
             /reference:System.Net.Http.dll `
             /reference:System.Web.Extensions.dll `
-            .\SubscriptionStatus.cs
+            $sources
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
