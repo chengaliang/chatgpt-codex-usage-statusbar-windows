@@ -583,11 +583,12 @@ internal sealed class OfficialQuotaService : IDisposable
 /// </summary>
 internal sealed class StatusWindow : Form
 {
-    private const int WindowWidth = 320;
-    private const int WindowHeight = 40;
+    private const int WindowWidth = 370;
+    private const int WindowHeight = 56;
     private const string ProjectUrl = "https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows";
-    private readonly Rectangle closeArea = new Rectangle(WindowWidth - 24, 11, 18, 18);
-    private readonly Rectangle refreshArea = new Rectangle(WindowWidth - 47, 11, 18, 18);
+    private readonly Rectangle closeArea = new Rectangle(WindowWidth - 30, 17, 20, 20);
+    private readonly Rectangle refreshArea = new Rectangle(WindowWidth - 58, 17, 20, 20);
+    private readonly Rectangle expandArea = new Rectangle(WindowWidth - 86, 17, 20, 20);
     private readonly IUsageProvider usageProvider;
     private readonly SettingsStore settingsStore;
     private readonly AppSettings settings;
@@ -621,11 +622,12 @@ internal sealed class StatusWindow : Form
     private double animatedSecondaryPercent;
     private double targetPrimaryPercent;
     private double targetSecondaryPercent;
-    private DateTime visualPulseStartedAt;
     private DateTime nextResetPaintAt;
     private float visualPhase;
     private int refreshRotation;
     private bool visualAnimationActive;
+    private Point mouseDownLocation;
+    private bool draggingBar;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -696,7 +698,7 @@ internal sealed class StatusWindow : Form
         settings.AutoStartEnabled = autoStartEnabled;
         themePalette = ThemePalette.Create(settings.Theme);
         visualTimer = new System.Windows.Forms.Timer();
-        visualTimer.Interval = 1000;
+        visualTimer.Interval = settings.AnimationsEnabled ? 33 : 1000;
         visualTimer.Tick += VisualTimerTick;
         UpdateVisualTargets(false);
         nextResetPaintAt = DateTime.UtcNow;
@@ -715,11 +717,13 @@ internal sealed class StatusWindow : Form
         refreshScheduler.Start();
         trayController = new TrayController(
             ShowFromTray,
+            ShowUsageHub,
             RefreshFromTray,
             ShowSettings,
             RunDiagnostics,
             OpenProjectPage,
             ExitApplication);
+        trayController.ApplyTheme(themePalette);
     }
 
     /// <summary>
@@ -730,11 +734,12 @@ internal sealed class StatusWindow : Form
         ContextMenuStrip menu = new ContextMenuStrip();
         menu.ShowImageMargin = false;
 
+        ToolStripMenuItem hubItem = new ToolStripMenuItem("打开 Usage Hub");
+        hubItem.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+        hubItem.Click += delegate(object sender, EventArgs args) { ShowUsageHub(); };
+
         ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
         refreshItem.Click += async delegate(object sender, EventArgs args) { await RefreshQuotaSafelyAsync(); };
-
-        ToolStripMenuItem detailsItem = new ToolStripMenuItem("查看额度详情");
-        detailsItem.Click += delegate(object sender, EventArgs args) { ShowDetails(); };
 
         ToolStripMenuItem intervalMenu = new ToolStripMenuItem("刷新周期");
         foreach (int minutes in AppSettings.GetSupportedRefreshIntervals())
@@ -805,8 +810,9 @@ internal sealed class StatusWindow : Form
         ToolStripMenuItem exitItem = new ToolStripMenuItem("退出");
         exitItem.Click += delegate(object sender, EventArgs args) { ExitApplication(); };
 
+        menu.Items.Add(hubItem);
         menu.Items.Add(refreshItem);
-        menu.Items.Add(detailsItem);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(intervalMenu);
         menu.Items.Add(styleMenu);
         menu.Items.Add(autoStartMenuItem);
@@ -819,6 +825,7 @@ internal sealed class StatusWindow : Form
         menu.Items.Add(projectItem);
         menu.Items.Add(updateItem);
         menu.Items.Add(exitItem);
+        UiTheme.StyleMenu(menu, themePalette);
         return menu;
     }
 
@@ -843,6 +850,11 @@ internal sealed class StatusWindow : Form
         {
             // 延后一轮消息再定位，确保无边框窗口完成句柄创建和初次布局。
             BeginInvoke((MethodInvoker)delegate { PositionMiniWindow(); });
+            if (settings.AnimationsEnabled)
+            {
+                visualAnimationActive = true;
+                UpdateVisualTimerInterval();
+            }
             if (settings.LaunchDelaySeconds > 0)
             {
                 // 开机自启时允许代理、网络和 Codex CLI 完成初始化，同时先保留可用的缓存画面。
@@ -920,6 +932,7 @@ internal sealed class StatusWindow : Form
         RememberPosition();
         Hide();
         visualTimer.Stop();
+        visualAnimationActive = false;
         trayController.SetStatus(BuildTrayStatus());
     }
 
@@ -961,6 +974,11 @@ internal sealed class StatusWindow : Form
         Show();
         WindowState = FormWindowState.Normal;
         Activate();
+        if (settings.AnimationsEnabled)
+        {
+            visualAnimationActive = true;
+            UpdateVisualTimerInterval();
+        }
         visualTimer.Start();
         trayController.SetStatus(BuildTrayStatus());
     }
@@ -977,19 +995,31 @@ internal sealed class StatusWindow : Form
     }
 
     /// <summary>
-    /// 打开脱离主状态栏的详情视图。详情窗口只拿到脱敏快照和本地历史，刷新仍复用主窗口的 Provider 链路。
+    /// 打开可展开的 Usage Hub。工作区使用当前脱敏快照和本地趋势，所有刷新仍复用主窗口的 Provider 链路。
     /// </summary>
-    private void ShowDetails()
+    private void ShowUsageHub()
     {
-        using (UsageDetailsForm form = new UsageDetailsForm(
+        using (UsageHubForm form = new UsageHubForm(
             usageSnapshot,
             historyStore.Load(),
             RefreshForDetailsAsync,
             delegate { return historyStore.Load(); },
-            settings.Theme))
+            ShowSettings,
+            ShowDiagnosticReport,
+            OpenProjectPage,
+            settings.Theme,
+            settings.AnimationsEnabled))
         {
             form.ShowDialog(this);
         }
+    }
+
+    /// <summary>
+    /// 保留旧的内部入口名称，右键、双击和旧测试都统一进入新的大屏工作区。
+    /// </summary>
+    private void ShowDetails()
+    {
+        ShowUsageHub();
     }
 
     private async Task<UsageSnapshot> RefreshForDetailsAsync()
@@ -1038,6 +1068,8 @@ internal sealed class StatusWindow : Form
             UpdateBackgroundStyleChecks();
             ApplyBackgroundStyle();
             ApplyTheme();
+            UiTheme.StyleMenu(contextMenu, themePalette);
+            trayController.ApplyTheme(themePalette);
             SaveSettings();
             toolTip.SetToolTip(this, BuildTooltipText());
             trayController.SetStatus(BuildTrayStatus());
@@ -1271,7 +1303,6 @@ internal sealed class StatusWindow : Form
         }
 
         visualAnimationActive = true;
-        visualPulseStartedAt = DateTime.UtcNow;
         visualPhase = 0f;
         refreshRotation = 0;
         UpdateVisualTimerInterval();
@@ -1292,13 +1323,12 @@ internal sealed class StatusWindow : Form
         {
             animatedPrimaryPercent = targetPrimaryPercent;
             animatedSecondaryPercent = targetSecondaryPercent;
-            visualAnimationActive = false;
+            visualAnimationActive = settings.AnimationsEnabled && Visible;
             UpdateVisualTimerInterval();
             return;
         }
 
         visualAnimationActive = true;
-        visualPulseStartedAt = DateTime.UtcNow;
         visualPhase = 0f;
         UpdateVisualTimerInterval();
     }
@@ -1361,10 +1391,8 @@ internal sealed class StatusWindow : Form
                 refreshRotation = (refreshRotation + 18) % 360;
             }
 
-            bool reachedTarget = Math.Abs(animatedPrimaryPercent - targetPrimaryPercent) <= 0.05d &&
-                Math.Abs(animatedSecondaryPercent - targetSecondaryPercent) <= 0.05d;
-            bool pulseFinished = (now - visualPulseStartedAt).TotalMilliseconds >= 900d;
-            if (reachedTarget && pulseFinished && !isRefreshing)
+            // 保持低频的待机呼吸和高光扫描，让状态栏在不刷新时也有明确的生命感；隐藏到托盘时会停止计时器。
+            if (!Visible)
             {
                 visualAnimationActive = false;
             }
@@ -1392,7 +1420,7 @@ internal sealed class StatusWindow : Form
             return;
         }
 
-        int interval = settings.AnimationsEnabled && visualAnimationActive ? 33 : 1000;
+        int interval = settings.AnimationsEnabled && visualAnimationActive ? 45 : 1000;
         if (visualTimer.Interval != interval)
         {
             visualTimer.Interval = interval;
@@ -1667,23 +1695,37 @@ internal sealed class StatusWindow : Form
             g.FillRectangle(background, ClientRectangle);
         }
 
+        using (Pen topLine = new Pen(UiTheme.WithAlpha(themePalette.PrimaryAccent, 190), 2f))
+        {
+            g.DrawLine(topLine, 10, 1, WindowWidth - 10, 1);
+        }
+
+        if (settings.AnimationsEnabled)
+        {
+            int sweepX = 8 + (int)((WindowWidth - 16) * ((Math.Sin(visualPhase * 0.55d) + 1d) / 2d));
+            using (Pen sweep = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, 48), 1f))
+            {
+                g.DrawLine(sweep, sweepX, 4, sweepX, WindowHeight - 4);
+            }
+        }
+
         Color borderColor = visualAnimationActive && settings.AnimationsEnabled
             ? BlendColors(themePalette.Border, themePalette.PrimaryAccent, 0.35f)
             : themePalette.Border;
         using (Pen border = new Pen(borderColor, 1f))
-        using (GraphicsPath borderPath = RoundedRectangle(new Rectangle(0, 0, WindowWidth - 1, WindowHeight - 1), 9))
+        using (GraphicsPath borderPath = RoundedRectangle(new Rectangle(0, 0, WindowWidth - 1, WindowHeight - 1), 12))
         {
             g.DrawPath(border, borderPath);
         }
 
         DrawBrand(g);
-        DrawDivider(g, 58);
+        DrawDivider(g, 78);
         QuotaWindow primaryWindow = FindDisplayWindow(18000, 0);
         QuotaWindow secondaryWindow = FindDisplayWindow(604800, 1, primaryWindow);
-        DrawWindow(g, new Rectangle(68, 0, 58, WindowHeight), primaryWindow, CompactWindowName(primaryWindow, "1"), themePalette.PrimaryAccent, animatedPrimaryPercent);
-        DrawDivider(g, 126);
-        DrawWindow(g, new Rectangle(136, 0, 58, WindowHeight), secondaryWindow, CompactWindowName(secondaryWindow, "2"), themePalette.SecondaryAccent, animatedSecondaryPercent);
-        DrawDivider(g, 194);
+        DrawWindow(g, new Rectangle(88, 0, 78, WindowHeight), primaryWindow, CompactWindowName(primaryWindow, "1"), themePalette.PrimaryAccent, animatedPrimaryPercent);
+        DrawDivider(g, 174);
+        DrawWindow(g, new Rectangle(184, 0, 78, WindowHeight), secondaryWindow, CompactWindowName(secondaryWindow, "2"), themePalette.SecondaryAccent, animatedSecondaryPercent);
+        DrawDivider(g, 270);
         DrawStatus(g);
         DrawActionButtons(g);
     }
@@ -1698,15 +1740,16 @@ internal sealed class StatusWindow : Form
             int haloSize = 11 + (int)Math.Round(wave * 4d);
             using (SolidBrush halo = new SolidBrush(Color.FromArgb(haloAlpha, statusColor)))
             {
-                g.FillEllipse(halo, 11 - haloSize / 2, 19 - haloSize / 2, haloSize, haloSize);
+                g.FillEllipse(halo, 13 - haloSize / 2, 20 - haloSize / 2, haloSize, haloSize);
             }
         }
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
-            g.FillEllipse(dot, 8, 16, 7, 7);
+            g.FillEllipse(dot, 10, 17, 8, 8);
         }
 
-        DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 8.2f, FontStyle.Bold, themePalette.PrimaryText, 20, 9);
+        DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 9f, FontStyle.Bold, themePalette.PrimaryText, 23, 8);
+        DrawText(g, "USAGE", "Consolas", 5.5f, FontStyle.Bold, themePalette.SecondaryText, 23, 29);
     }
 
     private string CompactPlanName()
@@ -1723,16 +1766,16 @@ internal sealed class StatusWindow : Form
     {
         double usedPercent = window == null ? 0d : window.UsedPercent;
         string percentage = window == null ? "--" : usedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
-        int trackWidth = bounds.Width - 6;
+        int trackWidth = bounds.Width - 4;
         double safeVisualPercent = Math.Max(0d, Math.Min(100d, visualPercent));
         int fillWidth = (int)Math.Round(trackWidth * safeVisualPercent / 100d);
         fillWidth = Math.Max(0, Math.Min(trackWidth, fillWidth));
         Color fillColor = GetUsageColor(usedPercent, accent);
 
-        DrawText(g, compactName, "Consolas", 7f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 11);
-        DrawTextRight(g, percentage, "Consolas", 8.5f, FontStyle.Bold, themePalette.PrimaryText, bounds.Right - 2, 9);
+        DrawText(g, compactName, "Consolas", 7.2f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 9);
+        DrawTextRight(g, percentage, "Consolas", 10f, FontStyle.Bold, themePalette.PrimaryText, bounds.Right, 7);
 
-        Rectangle track = new Rectangle(bounds.Left, 25, trackWidth, 3);
+        Rectangle track = new Rectangle(bounds.Left, 27, trackWidth, 5);
         using (SolidBrush trackBrush = new SolidBrush(themePalette.Track))
         using (GraphicsPath trackPath = RoundedRectangle(track, 2))
         {
@@ -1756,9 +1799,9 @@ internal sealed class StatusWindow : Form
                 {
                     double wave = (Math.Sin(visualPhase) + 1d) / 2d;
                     int shineX = fill.Left + (int)Math.Round((fill.Width - 3) * wave);
-                    using (SolidBrush shine = new SolidBrush(Color.FromArgb(120, Color.White)))
+                    using (SolidBrush shine = new SolidBrush(Color.FromArgb(145, Color.White)))
                     {
-                        g.FillRectangle(shine, shineX, fill.Top, 2, fill.Height);
+                        g.FillRectangle(shine, shineX, fill.Top - 1, 2, fill.Height + 2);
                     }
                 }
             }
@@ -1766,7 +1809,7 @@ internal sealed class StatusWindow : Form
 
         // 底部直接显示日期和下一次重置时间；扩大额度列宽度后避免日期与分隔线重叠。
         string reset = window == null ? "--" : FormatVisibleReset(window.ResetAt);
-        DrawText(g, reset, "Consolas", 6.5f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 29);
+        DrawText(g, reset, "Consolas", 7.2f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 37);
     }
 
     private void DrawStatus(Graphics g)
@@ -1777,38 +1820,49 @@ internal sealed class StatusWindow : Form
             double wave = (Math.Sin(visualPhase + 1.2d) + 1d) / 2d;
             using (Pen pulse = new Pen(Color.FromArgb(45 + (int)Math.Round(wave * 35d), statusColor), 1f))
             {
-                g.DrawEllipse(pulse, 201, 14, 9, 9);
+                g.DrawEllipse(pulse, 276, 14, 11, 11);
             }
         }
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
-            g.FillEllipse(dot, 203, 16, 5, 5);
+            g.FillEllipse(dot, 279, 17, 6, 6);
         }
-
-        string status = isRefreshing
-            ? "..."
-            : (snapshot.IsStale ? "CACHE" : (snapshot.Success ? "OK" : "ERR"));
-        DrawText(g, status, "Consolas", 7.5f, FontStyle.Bold, statusColor, 212, 11);
     }
 
     private void DrawActionButtons(Graphics g)
     {
         bool refreshHover = refreshArea.Contains(PointToClient(Cursor.Position));
         bool closeHover = closeArea.Contains(PointToClient(Cursor.Position));
+        bool expandHover = expandArea.Contains(PointToClient(Cursor.Position));
+        DrawButtonSurface(g, expandArea, expandHover);
         DrawButtonSurface(g, refreshArea, refreshHover);
         DrawButtonSurface(g, closeArea, closeHover);
+
+        using (Pen expandPen = new Pen(themePalette.ButtonIcon, 1.35f))
+        {
+            expandPen.StartCap = LineCap.Round;
+            expandPen.EndCap = LineCap.Round;
+            int left = expandArea.Left + 5;
+            int top = expandArea.Top + 5;
+            int right = expandArea.Right - 5;
+            int bottom = expandArea.Bottom - 5;
+            g.DrawLine(expandPen, left, top + 4, left, top);
+            g.DrawLine(expandPen, left, top, left + 4, top);
+            g.DrawLine(expandPen, right, bottom - 4, right, bottom);
+            g.DrawLine(expandPen, right - 4, bottom, right, bottom);
+        }
 
         using (Pen refreshPen = new Pen(themePalette.ButtonIcon, 1.4f))
         {
             refreshPen.StartCap = LineCap.Round;
             refreshPen.EndCap = LineCap.Round;
             int rotation = isRefreshing && settings.AnimationsEnabled ? refreshRotation : 0;
-            g.DrawArc(refreshPen, new Rectangle(refreshArea.Left + 4, refreshArea.Top + 4, 10, 10), 35 + rotation, 285);
+            g.DrawArc(refreshPen, new Rectangle(refreshArea.Left + 4, refreshArea.Top + 4, 12, 12), 35 + rotation, 285);
             Point[] arrow =
             {
-                new Point(refreshArea.Left + 14, refreshArea.Top + 5),
-                new Point(refreshArea.Left + 15, refreshArea.Top + 9),
-                new Point(refreshArea.Left + 11, refreshArea.Top + 8)
+                new Point(refreshArea.Left + 16, refreshArea.Top + 6),
+                new Point(refreshArea.Left + 16, refreshArea.Top + 10),
+                new Point(refreshArea.Left + 12, refreshArea.Top + 9)
             };
             g.DrawLines(refreshPen, arrow);
         }
@@ -1941,7 +1995,7 @@ internal sealed class StatusWindow : Form
         {
             text += "\r\n" + snapshot.ErrorText;
         }
-        text += "\r\n双击查看详情；右键：刷新周期、背景样式、开机自启和诊断";
+        text += "\r\n点击展开 Usage Hub；右键：刷新周期、背景样式、开机自启和诊断";
         return text;
     }
 
@@ -2020,9 +2074,10 @@ internal sealed class StatusWindow : Form
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
-        if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) && !refreshArea.Contains(e.Location))
+        if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) && !refreshArea.Contains(e.Location) && !expandArea.Contains(e.Location))
         {
-            userMoved = true;
+            mouseDownLocation = e.Location;
+            draggingBar = false;
             ReleaseCapture();
             SendMessage(Handle, 0x00A1, new IntPtr(2), IntPtr.Zero);
         }
@@ -2040,16 +2095,31 @@ internal sealed class StatusWindow : Form
             HideToTray();
             return;
         }
+        if (expandArea.Contains(e.Location))
+        {
+            ShowUsageHub();
+            return;
+        }
         if (refreshArea.Contains(e.Location))
         {
             await RefreshQuotaSafelyAsync();
+            return;
+        }
+        bool clickedAfterDrag = draggingBar ||
+            Math.Abs(e.Location.X - mouseDownLocation.X) > 6 ||
+            Math.Abs(e.Location.Y - mouseDownLocation.Y) > 6;
+        draggingBar = false;
+        if (!clickedAfterDrag)
+        {
+            ShowUsageHub();
         }
     }
 
     protected override void OnMouseDoubleClick(MouseEventArgs e)
     {
         base.OnMouseDoubleClick(e);
-        if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) && !refreshArea.Contains(e.Location))
+        if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) &&
+            !refreshArea.Contains(e.Location) && !expandArea.Contains(e.Location))
         {
             ShowDetails();
         }
@@ -2058,15 +2128,23 @@ internal sealed class StatusWindow : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        Cursor = closeArea.Contains(e.Location) || refreshArea.Contains(e.Location) ? Cursors.Hand : Cursors.SizeAll;
-        Invalidate(new Rectangle(WindowWidth - 52, 6, 48, 28));
+        if (e.Button == MouseButtons.Left && !draggingBar &&
+            (Math.Abs(e.Location.X - mouseDownLocation.X) > 6 || Math.Abs(e.Location.Y - mouseDownLocation.Y) > 6))
+        {
+            draggingBar = true;
+            userMoved = true;
+        }
+        Cursor = closeArea.Contains(e.Location) || refreshArea.Contains(e.Location) || expandArea.Contains(e.Location)
+            ? Cursors.Hand
+            : Cursors.SizeAll;
+        Invalidate(new Rectangle(WindowWidth - 92, 7, 84, 38));
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
         Cursor = Cursors.Default;
-        Invalidate(new Rectangle(WindowWidth - 52, 6, 48, 28));
+        Invalidate(new Rectangle(WindowWidth - 92, 7, 84, 38));
     }
 
     [StructLayout(LayoutKind.Sequential)]

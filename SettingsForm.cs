@@ -21,6 +21,12 @@ internal sealed class SettingsForm : Form
     private readonly NumericUpDown thresholdInput;
     private readonly ThemePalette palette;
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam);
+
     public AppSettings Result { get; private set; }
 
     public SettingsForm(AppSettings settings)
@@ -30,12 +36,14 @@ internal sealed class SettingsForm : Form
         palette = ThemePalette.Create(draft.Theme);
 
         Text = "状态栏设置";
-        ClientSize = new Size(390, 468);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        ClientSize = new Size(520, 570);
+        MinimumSize = new Size(500, 540);
+        FormBorderStyle = FormBorderStyle.None;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
-        StartPosition = FormStartPosition.CenterParent;
+        // 状态栏是工具窗，居中到父窗体会让设置面板贴在屏幕边缘；独立居中更稳定。
+        StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96f, 96f);
         BackColor = palette.BackgroundTop;
@@ -43,23 +51,40 @@ internal sealed class SettingsForm : Form
 
         TableLayoutPanel layout = new TableLayoutPanel();
         layout.Dock = DockStyle.Fill;
-        layout.Padding = new Padding(16, 14, 16, 12);
+        layout.Padding = new Padding(22, 18, 22, 16);
         layout.ColumnCount = 2;
-        layout.RowCount = 12;
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 142f));
+        layout.RowCount = 13;
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 172f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
+        for (int row = 1; row <= 11; row++)
+        {
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+        }
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
+
+        Panel header = new Panel();
+        header.Dock = DockStyle.Fill;
+        header.BackColor = Color.Transparent;
+        Label title = new Label();
+        title.Text = "状态栏设置";
+        title.AutoSize = true;
+        title.Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold);
+        title.ForeColor = palette.PrimaryText;
+        title.Location = new Point(0, 0);
+        Label hint = new Label();
+        hint.Text = "调整外观、刷新节奏和隐私友好的本地体验";
+        hint.AutoSize = true;
+        hint.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
+        hint.ForeColor = palette.SecondaryText;
+        hint.Location = new Point(2, 29);
+        header.Controls.Add(title);
+        header.Controls.Add(hint);
+        header.MouseDown += BeginWindowDrag;
+        title.MouseDown += BeginWindowDrag;
+        hint.MouseDown += BeginWindowDrag;
+        layout.Controls.Add(header, 0, 0);
+        layout.SetColumnSpan(header, 2);
 
         refreshCombo = CreateCombo();
         foreach (int minutes in AppSettings.GetSupportedRefreshIntervals())
@@ -135,17 +160,17 @@ internal sealed class SettingsForm : Form
         animationsCheck.Checked = draft.AnimationsEnabled;
         animationsCheck.AccessibleName = "开启平滑进度和状态动效";
 
-        AddRow(layout, 0, "自动刷新", refreshCombo);
-        AddRow(layout, 1, "历史保留", historyRetentionCombo);
-        AddRow(layout, 2, "主题", themeCombo);
-        AddRow(layout, 3, "背景样式", backgroundCombo);
-        AddRow(layout, 4, "开机启动", autoStartCheck);
-        AddRow(layout, 5, "启动延迟", launchDelayCombo);
-        AddRow(layout, 6, "启动更新检查", autoCheckUpdatesCheck);
-        AddRow(layout, 7, "通知", notificationsCheck);
-        AddRow(layout, 8, "通知阈值", thresholdInput);
-        AddRow(layout, 9, "窗口位置", restorePositionCheck);
-        AddRow(layout, 10, "视觉反馈", animationsCheck);
+        AddRow(layout, 1, "自动刷新", refreshCombo);
+        AddRow(layout, 2, "历史保留", historyRetentionCombo);
+        AddRow(layout, 3, "主题", themeCombo);
+        AddRow(layout, 4, "背景样式", backgroundCombo);
+        AddRow(layout, 5, "开机启动", autoStartCheck);
+        AddRow(layout, 6, "启动延迟", launchDelayCombo);
+        AddRow(layout, 7, "启动更新检查", autoCheckUpdatesCheck);
+        AddRow(layout, 8, "通知", notificationsCheck);
+        AddRow(layout, 9, "通知阈值", thresholdInput);
+        AddRow(layout, 10, "窗口位置", restorePositionCheck);
+        AddRow(layout, 11, "视觉反馈", animationsCheck);
 
         FlowLayoutPanel buttons = new FlowLayoutPanel();
         buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -155,23 +180,52 @@ internal sealed class SettingsForm : Form
 
         Button saveButton = new Button();
         saveButton.Text = "保存";
-        saveButton.Width = 82;
-        saveButton.Height = 28;
+        saveButton.Width = 96;
+        saveButton.Height = 34;
         saveButton.DialogResult = DialogResult.None;
         saveButton.Click += OnSave;
 
         Button cancelButton = new Button();
         cancelButton.Text = "取消";
-        cancelButton.Width = 82;
-        cancelButton.Height = 28;
+        cancelButton.Width = 96;
+        cancelButton.Height = 34;
         cancelButton.DialogResult = DialogResult.Cancel;
+
+        UiTheme.StyleButton(saveButton, palette, true);
+        UiTheme.StyleButton(cancelButton, palette, false);
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 11);
+        layout.Controls.Add(buttons, 0, 12);
         layout.SetColumnSpan(buttons, 2);
         ApplyControlTheme(layout);
+        hint.ForeColor = palette.SecondaryText;
         Controls.Add(layout);
+
+        Button closeButton = new Button();
+        closeButton.Text = "×";
+        closeButton.Width = 34;
+        closeButton.Height = 30;
+        closeButton.Location = new Point(ClientSize.Width - 46, 10);
+        closeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        closeButton.FlatStyle = FlatStyle.Flat;
+        closeButton.FlatAppearance.BorderSize = 0;
+        closeButton.BackColor = Color.Transparent;
+        closeButton.ForeColor = palette.SecondaryText;
+        closeButton.Font = new Font("Segoe UI Symbol", 13f, FontStyle.Regular);
+        closeButton.Cursor = Cursors.Hand;
+        closeButton.UseVisualStyleBackColor = false;
+        closeButton.AccessibleName = "关闭状态栏设置";
+        closeButton.Click += delegate(object sender, EventArgs args) { Close(); };
+        Controls.Add(closeButton);
+        closeButton.BringToFront();
+        Paint += delegate(object sender, PaintEventArgs args)
+        {
+            using (Pen border = new Pen(UiTheme.WithAlpha(palette.ControlBorder, 190), 1f))
+            {
+                args.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+            }
+        };
 
         AcceptButton = saveButton;
         CancelButton = cancelButton;
@@ -179,10 +233,23 @@ internal sealed class SettingsForm : Form
         UpdateThresholdState();
     }
 
+    private void BeginWindowDrag(object sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        ReleaseCapture();
+        SendMessage(Handle, 0x00A1, new IntPtr(2), IntPtr.Zero);
+    }
+
     private static ComboBox CreateCombo()
     {
         ComboBox combo = new ComboBox();
         combo.DropDownStyle = ComboBoxStyle.DropDownList;
+        combo.FlatStyle = FlatStyle.Flat;
+        combo.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
         combo.Dock = DockStyle.Fill;
         combo.MaxDropDownItems = 8;
         return combo;
@@ -194,6 +261,7 @@ internal sealed class SettingsForm : Form
         label.Text = labelText;
         label.AutoSize = true;
         label.Anchor = AnchorStyles.Left;
+        label.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
         label.Margin = new Padding(0, 0, 8, 0);
         control.Margin = new Padding(0, 2, 0, 2);
         layout.Controls.Add(label, 0, row);
@@ -209,11 +277,28 @@ internal sealed class SettingsForm : Form
             {
                 child.ForeColor = palette.PrimaryText;
                 child.BackColor = Color.Transparent;
+                child.Font = child is CheckBox
+                    ? new Font("Microsoft YaHei UI", 9f, FontStyle.Regular)
+                    : child.Font;
             }
-            else if (child is ComboBox || child is NumericUpDown || child is Button)
+            else if (child is ComboBox)
             {
                 child.ForeColor = palette.PrimaryText;
                 child.BackColor = palette.ControlBackground;
+                ComboBox combo = (ComboBox)child;
+                combo.FlatStyle = FlatStyle.Flat;
+                combo.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+            }
+            else if (child is NumericUpDown)
+            {
+                child.ForeColor = palette.PrimaryText;
+                child.BackColor = palette.ControlBackground;
+                child.Font = new Font("Consolas", 9f, FontStyle.Regular);
+                ((NumericUpDown)child).BorderStyle = BorderStyle.FixedSingle;
+            }
+            else if (child is Button)
+            {
+                UiTheme.StyleButton((Button)child, palette, ((Button)child).Text == "保存");
             }
             else
             {

@@ -126,6 +126,22 @@ $details = $detailConstructor.Invoke([object[]]@($live, $historyList, $null, $nu
 if ($details.ShowInTaskbar) { throw 'UsageDetailsForm should stay out of the taskbar' }
 if ($details.AutoScaleMode.ToString() -ne 'Dpi') { throw 'UsageDetailsForm should use DPI scaling' }
 $details.Dispose()
+$hubType = $assembly.GetType('UsageHubForm')
+$hubSurfaceType = $assembly.GetType('UsageHubSurface')
+if ($null -eq $hubType -or $null -eq $hubSurfaceType) { throw 'Usage Hub presentation types are missing' }
+foreach ($name in @('SetData', 'BeginEntrance', 'AdvanceAnimation', 'SetRefreshing')) {
+    if ($null -eq $hubSurfaceType.GetMethod($name)) { throw "UsageHubSurface method missing: $name" }
+}
+$hubConstructor = $hubType.GetConstructors([Reflection.BindingFlags]'Public,NonPublic,Instance') |
+    Where-Object { $_.GetParameters().Count -eq 4 } |
+    Select-Object -First 1
+if ($null -eq $hubConstructor) { throw 'UsageHubForm constructor is missing' }
+$hub = $hubConstructor.Invoke([object[]]@($live, $historyList, $null, $null))
+if ($hub.ShowInTaskbar -or $hub.AutoScaleMode.ToString() -ne 'Dpi' -or $hub.ClientSize.Width -lt 760 -or $hub.ClientSize.Height -lt 620 -or $hub.MinimumSize.Height -lt 620) {
+    throw 'UsageHubForm window flags, DPI mode or minimum canvas size are invalid'
+}
+if ($hub.Controls.Count -eq 0) { throw 'UsageHubForm did not build its drawing surface' }
+$hub.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))
 if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 400) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
@@ -155,7 +171,7 @@ $diagnosticFormConstructor = $diagnosticFormType.GetConstructors([Reflection.Bin
     Select-Object -First 1
 if ($null -eq $diagnosticFormConstructor) { throw 'DiagnosticsForm constructor is missing' }
 $diagnosticForm = $diagnosticFormConstructor.Invoke([object[]]@([string]$report, $checks, $null, [Enum]::ToObject($themeType, 0)))
-if ($diagnosticForm.ShowInTaskbar -or $diagnosticForm.AutoScaleMode.ToString() -ne 'Dpi') { throw 'DiagnosticsForm window flags or DPI mode are invalid' }
+if ($diagnosticForm.ShowInTaskbar -or $diagnosticForm.AutoScaleMode.ToString() -ne 'Dpi' -or $diagnosticForm.StartPosition.ToString() -ne 'CenterScreen' -or $diagnosticForm.MaximizeBox) { throw 'DiagnosticsForm window flags, centering or custom chrome state are invalid' }
 $diagnosticSnapshot = [Activator]::CreateInstance($diagnosticSnapshotType, [object[]]@([string]$report, $checks))
 $diagnosticForm.UpdateSnapshot($diagnosticSnapshot)
 if ($diagnosticForm.Controls.Count -eq 0) { throw 'DiagnosticsForm did not build its control layout' }

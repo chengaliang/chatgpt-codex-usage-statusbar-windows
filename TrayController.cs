@@ -19,6 +19,7 @@ internal sealed class TrayController : IDisposable
         Action exitApplication)
         : this(
             showWindow,
+            showWindow,
             refresh,
             showSettings,
             CreateEventHandler(runDiagnostics),
@@ -34,10 +35,33 @@ internal sealed class TrayController : IDisposable
         EventHandler runDiagnostics,
         Action openProject,
         Action exitApplication)
+        : this(
+            showWindow,
+            showWindow,
+            refresh,
+            showSettings,
+            runDiagnostics,
+            openProject,
+            exitApplication)
+    {
+    }
+
+    public TrayController(
+        Action showWindow,
+        Action showDetails,
+        Action refresh,
+        Action showSettings,
+        EventHandler runDiagnostics,
+        Action openProject,
+        Action exitApplication)
     {
         if (showWindow == null)
         {
             throw new ArgumentNullException("showWindow");
+        }
+        if (showDetails == null)
+        {
+            throw new ArgumentNullException("showDetails");
         }
         if (refresh == null)
         {
@@ -63,6 +87,7 @@ internal sealed class TrayController : IDisposable
         menu = new ContextMenuStrip();
         menu.ShowImageMargin = false;
         menu.Items.Add(CreateItem("显示状态栏", delegate { showWindow(); }));
+        menu.Items.Add(CreateItem("打开 Usage Hub", delegate { showDetails(); }));
         menu.Items.Add(CreateItem("立即刷新", delegate { refresh(); }));
         menu.Items.Add(CreateItem("设置", delegate { showSettings(); }));
         menu.Items.Add(CreateItem("诊断中心", runDiagnostics));
@@ -76,6 +101,7 @@ internal sealed class TrayController : IDisposable
         notifyIcon.ContextMenuStrip = menu;
         notifyIcon.Visible = true;
         notifyIcon.DoubleClick += delegate(object sender, EventArgs args) { showWindow(); };
+        UiTheme.StyleMenu(menu, ThemePalette.Create(ThemeMode.Dark));
     }
 
     private static EventHandler CreateEventHandler(Action action)
@@ -126,8 +152,21 @@ internal sealed class TrayController : IDisposable
     private static ToolStripMenuItem CreateItem(string text, EventHandler handler)
     {
         ToolStripMenuItem item = new ToolStripMenuItem(text);
+        item.AutoSize = true;
         item.Click += handler;
         return item;
+    }
+
+    /// <summary>
+    /// 主窗口主题切换后同步托盘菜单，避免右键菜单仍停留在旧的系统默认配色。
+    /// </summary>
+    public void ApplyTheme(ThemePalette palette)
+    {
+        if (disposed || palette == null)
+        {
+            return;
+        }
+        UiTheme.StyleMenu(menu, palette);
     }
 
     public void Dispose()

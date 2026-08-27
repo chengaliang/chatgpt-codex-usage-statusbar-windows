@@ -16,7 +16,14 @@ internal sealed class DiagnosticsForm : Form
     private readonly TextBox reportBox;
     private readonly Button refreshButton;
     private readonly Button copyButton;
+    private readonly Button chromeMaximizeButton;
     private DiagnosticSnapshot snapshot;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam);
 
     public DiagnosticsForm(
         string report,
@@ -29,13 +36,14 @@ internal sealed class DiagnosticsForm : Form
         snapshot = new DiagnosticSnapshot(report, checks);
 
         Text = "诊断中心";
-        ClientSize = new Size(700, 600);
-        MinimumSize = new Size(620, 500);
-        FormBorderStyle = FormBorderStyle.Sizable;
-        MaximizeBox = true;
+        ClientSize = new Size(760, 640);
+        MinimumSize = new Size(680, 560);
+        FormBorderStyle = FormBorderStyle.None;
+        MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
-        StartPosition = FormStartPosition.CenterParent;
+        // 状态栏本身位于屏幕边缘，使用 CenterParent 会把大窗口偏到角落；诊断工作区始终居中打开。
+        StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96f, 96f);
         BackColor = palette.BackgroundTop;
@@ -44,11 +52,11 @@ internal sealed class DiagnosticsForm : Form
 
         TableLayoutPanel layout = new TableLayoutPanel();
         layout.Dock = DockStyle.Fill;
-        layout.Padding = new Padding(18, 16, 18, 14);
+        layout.Padding = new Padding(24, 20, 24, 18);
         layout.ColumnCount = 1;
         layout.RowCount = 4;
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 300f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 308f));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
 
@@ -64,7 +72,7 @@ internal sealed class DiagnosticsForm : Form
         Label title = new Label();
         title.Text = "诊断中心";
         title.AutoSize = true;
-        title.Font = new Font("Microsoft YaHei UI", 14f, FontStyle.Bold);
+        title.Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold);
         title.ForeColor = palette.PrimaryText;
         title.Anchor = AnchorStyles.Left;
         title.AccessibleName = "诊断中心标题";
@@ -78,7 +86,7 @@ internal sealed class DiagnosticsForm : Form
         summaryLabel.AccessibleName = "诊断结果摘要";
 
         Label hint = new Label();
-        hint.Text = "以下检查项只提供安全状态和下一步建议";
+        hint.Text = "以下检查项只提供安全状态和下一步建议，不会展示凭据或完整响应";
         hint.AutoSize = true;
         hint.ForeColor = palette.SecondaryText;
         hint.Anchor = AnchorStyles.Left;
@@ -87,6 +95,11 @@ internal sealed class DiagnosticsForm : Form
         header.Controls.Add(summaryLabel, 1, 0);
         header.Controls.Add(hint, 0, 1);
         header.SetColumnSpan(hint, 2);
+        header.MouseDown += BeginWindowDrag;
+        header.DoubleClick += delegate(object sender, EventArgs args) { ToggleWindowState(); };
+        title.MouseDown += BeginWindowDrag;
+        title.DoubleClick += delegate(object sender, EventArgs args) { ToggleWindowState(); };
+        hint.MouseDown += BeginWindowDrag;
         layout.Controls.Add(header, 0, 0);
 
         checksLayout = new TableLayoutPanel();
@@ -120,32 +133,82 @@ internal sealed class DiagnosticsForm : Form
         Button closeButton = new Button();
         closeButton.Text = "关闭";
         closeButton.Width = 78;
-        closeButton.Height = 28;
+        closeButton.Height = 34;
         closeButton.DialogResult = DialogResult.Cancel;
         closeButton.AccessibleName = "关闭诊断中心";
 
         copyButton = new Button();
         copyButton.Text = "复制安全摘要";
         copyButton.Width = 112;
-        copyButton.Height = 28;
+        copyButton.Height = 34;
         copyButton.Click += CopyButtonClick;
         copyButton.AccessibleName = "复制不含凭据的安全诊断摘要";
 
         refreshButton = new Button();
         refreshButton.Text = "重新检查";
         refreshButton.Width = 94;
-        refreshButton.Height = 28;
+        refreshButton.Height = 34;
         refreshButton.Click += RefreshButtonClick;
         refreshButton.AccessibleName = "重新检查诊断项目";
 
         buttons.Controls.Add(closeButton);
         buttons.Controls.Add(copyButton);
         buttons.Controls.Add(refreshButton);
+        UiTheme.StyleButton(closeButton, palette, false);
+        UiTheme.StyleButton(copyButton, palette, false);
+        UiTheme.StyleButton(refreshButton, palette, true);
         layout.Controls.Add(buttons, 0, 3);
 
         Controls.Add(layout);
+
+        chromeMaximizeButton = new Button();
+        chromeMaximizeButton.Text = "□";
+        chromeMaximizeButton.Width = 34;
+        chromeMaximizeButton.Height = 30;
+        chromeMaximizeButton.Location = new Point(ClientSize.Width - 82, 12);
+        chromeMaximizeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        chromeMaximizeButton.FlatStyle = FlatStyle.Flat;
+        chromeMaximizeButton.FlatAppearance.BorderSize = 0;
+        chromeMaximizeButton.BackColor = Color.Transparent;
+        chromeMaximizeButton.ForeColor = palette.SecondaryText;
+        chromeMaximizeButton.Font = new Font("Segoe UI Symbol", 11f, FontStyle.Regular);
+        chromeMaximizeButton.Cursor = Cursors.Hand;
+        chromeMaximizeButton.UseVisualStyleBackColor = false;
+        chromeMaximizeButton.AccessibleName = "最大化或还原诊断中心";
+        chromeMaximizeButton.Click += delegate(object sender, EventArgs args) { ToggleWindowState(); };
+        Controls.Add(chromeMaximizeButton);
+        chromeMaximizeButton.BringToFront();
+
+        Button chromeCloseButton = new Button();
+        chromeCloseButton.Text = "×";
+        chromeCloseButton.Width = 34;
+        chromeCloseButton.Height = 30;
+        chromeCloseButton.Location = new Point(ClientSize.Width - 46, 12);
+        chromeCloseButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        chromeCloseButton.FlatStyle = FlatStyle.Flat;
+        chromeCloseButton.FlatAppearance.BorderSize = 0;
+        chromeCloseButton.BackColor = Color.Transparent;
+        chromeCloseButton.ForeColor = palette.SecondaryText;
+        chromeCloseButton.Font = new Font("Segoe UI Symbol", 13f, FontStyle.Regular);
+        chromeCloseButton.Cursor = Cursors.Hand;
+        chromeCloseButton.UseVisualStyleBackColor = false;
+        chromeCloseButton.AccessibleName = "关闭诊断中心";
+        chromeCloseButton.Click += delegate(object sender, EventArgs args) { Close(); };
+        Controls.Add(chromeCloseButton);
+        chromeCloseButton.BringToFront();
+        Paint += delegate(object sender, PaintEventArgs args)
+        {
+            using (Pen border = new Pen(UiTheme.WithAlpha(palette.ControlBorder, 190), 1f))
+            {
+                args.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+            }
+        };
         CancelButton = closeButton;
         KeyDown += DiagnosticsFormKeyDown;
+        Resize += delegate(object sender, EventArgs args)
+        {
+            chromeMaximizeButton.Text = WindowState == FormWindowState.Maximized ? "❐" : "□";
+        };
         Shown += delegate(object sender, EventArgs args) { UpdateView(); };
     }
 
@@ -154,10 +217,39 @@ internal sealed class DiagnosticsForm : Form
         get
         {
             CreateParams parameters = base.CreateParams;
-            // 工具窗口不进入 Alt+Tab，但保留可调整大小的诊断工作区。
+            // 工具窗口不进入 Alt+Tab；移动和最大化由自定义标题栏按钮处理。
             parameters.ExStyle |= 0x00000080;
             return parameters;
         }
+    }
+
+    private void BeginWindowDrag(object sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left || WindowState == FormWindowState.Maximized)
+        {
+            return;
+        }
+
+        ReleaseCapture();
+        SendMessage(Handle, 0x00A1, new IntPtr(2), IntPtr.Zero);
+    }
+
+    private void ToggleWindowState()
+    {
+        if (WindowState == FormWindowState.Maximized)
+        {
+            WindowState = FormWindowState.Normal;
+            chromeMaximizeButton.Text = "□";
+            return;
+        }
+
+        Screen screen = Screen.FromControl(this);
+        if (screen != null)
+        {
+            MaximizedBounds = screen.WorkingArea;
+        }
+        WindowState = FormWindowState.Maximized;
+        chromeMaximizeButton.Text = "❐";
     }
 
     public void UpdateSnapshot(DiagnosticSnapshot value)
@@ -306,21 +398,30 @@ internal sealed class DiagnosticsForm : Form
         Panel row = new Panel();
         row.Dock = DockStyle.Fill;
         row.BackColor = palette.Surface;
-        row.Padding = new Padding(10, 4, 10, 4);
+        row.Padding = new Padding(12, 5, 12, 5);
+        row.Margin = new Padding(0, 0, 0, 2);
+        row.Paint += delegate(object sender, PaintEventArgs args)
+        {
+            using (Pen border = new Pen(UiTheme.WithAlpha(palette.ControlBorder, 150), 1f))
+            {
+                args.Graphics.DrawRectangle(border, 0, 0, row.Width - 1, row.Height - 1);
+            }
+        };
 
         Label status = new Label();
         status.Text = GetStatusText(safeCheck.Status);
         status.AutoSize = false;
-        status.Width = 54;
+        status.Width = 62;
         status.Dock = DockStyle.Left;
-        status.TextAlign = ContentAlignment.MiddleLeft;
+        status.TextAlign = ContentAlignment.MiddleCenter;
         status.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Bold);
         status.ForeColor = GetStatusColor(safeCheck.Status);
+        status.BackColor = UiTheme.WithAlpha(GetStatusColor(safeCheck.Status), 26);
 
         Label action = new Label();
         action.Text = safeCheck.NextAction;
         action.AutoSize = false;
-        action.Width = 220;
+        action.Width = 250;
         action.Dock = DockStyle.Right;
         action.TextAlign = ContentAlignment.MiddleRight;
         action.ForeColor = palette.SecondaryText;
@@ -331,6 +432,7 @@ internal sealed class DiagnosticsForm : Form
         detail.AutoSize = false;
         detail.Dock = DockStyle.Fill;
         detail.TextAlign = ContentAlignment.MiddleLeft;
+        detail.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
         detail.ForeColor = palette.PrimaryText;
         detail.AutoEllipsis = true;
 
