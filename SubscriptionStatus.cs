@@ -2,16 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 /// <summary>
 /// 单个官方额度窗口。Codex/ChatGPT 后端通常返回 5 小时和 7 天两个动态窗口。
@@ -260,6 +263,57 @@ internal sealed class OfficialQuotaService : IDisposable
             resetAt));
     }
 
+    /// <summary>
+    /// 生成不含令牌、账户 ID 和响应原文的凭据诊断摘要，供用户提交 Issue 时参考。
+    /// </summary>
+    public string GetCredentialDiagnostic()
+    {
+        CredentialData credentials;
+        string error;
+        if (!TryReadCredentials(out credentials, out error))
+        {
+            return "OAuth：不可用\r\n原因：" + error;
+        }
+
+        return "OAuth：ChatGPT OAuth 配置可读取\r\n计划：" + SanitizeDiagnosticValue(credentials.PlanName, "ChatGPT");
+    }
+
+    /// <summary>
+    /// 返回代理模式摘要。为避免泄露内网地址，只报告模式和协议，不返回环境变量原值。
+    /// </summary>
+    public string GetProxyDiagnostic()
+    {
+        string proxyAddress = Environment.GetEnvironmentVariable("CLASH_MIXED_PROXY");
+        if (string.IsNullOrWhiteSpace(proxyAddress))
+        {
+            return "网络：Windows 系统代理或直连";
+        }
+
+        Uri proxyUri;
+        if (!Uri.TryCreate(proxyAddress, UriKind.Absolute, out proxyUri) ||
+            (proxyUri.Scheme != Uri.UriSchemeHttp && proxyUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return "网络：自定义代理格式无效，已回退系统代理";
+        }
+
+        return "网络：自定义 " + proxyUri.Scheme.ToUpperInvariant() + " 代理（地址已隐藏）";
+    }
+
+    private static string SanitizeDiagnosticValue(string value, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        string sanitized = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (sanitized.Length > 32)
+        {
+            sanitized = sanitized.Substring(0, 32);
+        }
+        return sanitized;
+    }
+
     private static string GetWindowName(long seconds)
     {
         if (seconds == 18000)
@@ -475,15 +529,23 @@ internal sealed class StatusWindow : Form
 {
     private const int WindowWidth = 320;
     private const int WindowHeight = 40;
+    private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string StartupValueName = "ChatGPTCodexUsageStatusBar";
+    private const string StartupConfiguredValueName = "ChatGPTCodexUsageStatusBarConfigured";
+    private const string ProjectUrl = "https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows";
     private readonly Rectangle closeArea = new Rectangle(WindowWidth - 24, 11, 18, 18);
     private readonly Rectangle refreshArea = new Rectangle(WindowWidth - 47, 11, 18, 18);
     private readonly OfficialQuotaService quotaService;
     private readonly System.Windows.Forms.Timer refreshTimer;
     private readonly CancellationTokenSource cancellation;
     private readonly ToolTip toolTip;
+    private readonly ContextMenuStrip contextMenu;
+    private ToolStripMenuItem autoStartMenuItem;
     private QuotaSnapshot snapshot;
     private bool isRefreshing;
     private bool userMoved;
+    private bool autoStartEnabled;
+    private string autoStartError;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -522,6 +584,10 @@ internal sealed class StatusWindow : Form
         quotaService = new OfficialQuotaService();
         cancellation = new CancellationTokenSource();
         snapshot = QuotaSnapshot.Loading();
+        autoStartError = string.Empty;
+        InitializeAutoStart();
+        contextMenu = CreateContextMenu();
+        ContextMenuStrip = contextMenu;
         toolTip = new ToolTip();
         toolTip.AutoPopDelay = 8000;
         toolTip.InitialDelay = 350;
@@ -530,8 +596,139 @@ internal sealed class StatusWindow : Form
 
         refreshTimer = new System.Windows.Forms.Timer();
         refreshTimer.Interval = 5 * 60 * 1000;
-        refreshTimer.Tick += async delegate(object sender, EventArgs args) { await RefreshQuotaAsync(); };
+        refreshTimer.Tick += async delegate(object sender, EventArgs args) { await RefreshQuotaSafelyAsync(); };
         refreshTimer.Start();
+    }
+
+    /// <summary>
+    /// 初始化当前用户的启动项。第一次运行默认启用，之后尊重用户在右键菜单中的选择。
+    /// 使用 HKCU 不需要管理员权限，也不会影响其他 Windows 用户的登录行为。
+    /// </summary>
+    private void InitializeAutoStart()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
+            {
+                if (key == null)
+                {
+                    autoStartError = "无法访问当前用户启动项";
+                    return;
+                }
+
+                object configured = key.GetValue(StartupConfiguredValueName);
+                if (configured == null)
+                {
+                    key.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
+                    key.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
+                    autoStartEnabled = true;
+                    return;
+                }
+
+                string command = key.GetValue(StartupValueName) as string;
+                autoStartEnabled = !string.IsNullOrWhiteSpace(command);
+                if (autoStartEnabled && !string.Equals(command, GetStartupCommand(), StringComparison.OrdinalIgnoreCase))
+                {
+                    // 程序被移动后修复旧路径，避免开机启动指向不存在的文件。
+                    key.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            autoStartEnabled = false;
+            autoStartError = "无法写入当前用户启动项";
+        }
+    }
+
+    private static string GetStartupCommand()
+    {
+        // Application.ExecutablePath 来自当前进程，双引号保证安装路径含空格时仍能正确启动。
+        return "\"" + Application.ExecutablePath + "\"";
+    }
+
+    /// <summary>
+    /// 更新当前用户的启动项并保留配置标记，使用户关闭自启后不会在下次启动被强制打开。
+    /// </summary>
+    private bool TrySetAutoStart(bool enabled)
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(StartupRegistryPath))
+            {
+                if (key == null)
+                {
+                    autoStartError = "无法访问当前用户启动项";
+                    return false;
+                }
+
+                if (enabled)
+                {
+                    key.SetValue(StartupValueName, GetStartupCommand(), RegistryValueKind.String);
+                }
+                else
+                {
+                    key.DeleteValue(StartupValueName, false);
+                }
+
+                key.SetValue(StartupConfiguredValueName, "1", RegistryValueKind.String);
+                autoStartEnabled = enabled;
+                autoStartError = string.Empty;
+                return true;
+            }
+        }
+        catch (Exception)
+        {
+            autoStartError = "无法更新当前用户启动项";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 构造右键菜单。状态栏保持极简，设置、诊断和项目入口集中在这里。
+    /// </summary>
+    private ContextMenuStrip CreateContextMenu()
+    {
+        ContextMenuStrip menu = new ContextMenuStrip();
+        menu.ShowImageMargin = false;
+
+        ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
+        refreshItem.Click += async delegate(object sender, EventArgs args) { await RefreshQuotaSafelyAsync(); };
+
+        autoStartMenuItem = new ToolStripMenuItem("开机自启");
+        autoStartMenuItem.CheckOnClick = true;
+        autoStartMenuItem.Checked = autoStartEnabled;
+        autoStartMenuItem.Click += delegate(object sender, EventArgs args)
+        {
+            bool requested = autoStartMenuItem.Checked;
+            if (!TrySetAutoStart(requested))
+            {
+                autoStartMenuItem.Checked = autoStartEnabled;
+                MessageBox.Show(this, autoStartError, "开机自启", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        };
+
+        ToolStripMenuItem diagnosticsItem = new ToolStripMenuItem("运行诊断");
+        diagnosticsItem.Click += RunDiagnostics;
+
+        ToolStripMenuItem copyDiagnosticsItem = new ToolStripMenuItem("复制诊断信息");
+        copyDiagnosticsItem.Click += delegate(object sender, EventArgs args) { CopyDiagnosticReport(); };
+
+        ToolStripMenuItem projectItem = new ToolStripMenuItem("打开项目主页");
+        projectItem.Click += delegate(object sender, EventArgs args) { OpenProjectPage(); };
+
+        ToolStripMenuItem exitItem = new ToolStripMenuItem("退出");
+        exitItem.Click += delegate(object sender, EventArgs args) { Close(); };
+
+        menu.Items.Add(refreshItem);
+        menu.Items.Add(autoStartMenuItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(diagnosticsItem);
+        menu.Items.Add(copyDiagnosticsItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(projectItem);
+        menu.Items.Add(exitItem);
+        return menu;
     }
 
     protected override CreateParams CreateParams
@@ -596,6 +793,7 @@ internal sealed class StatusWindow : Form
         quotaService.Dispose();
         cancellation.Dispose();
         toolTip.Dispose();
+        contextMenu.Dispose();
         base.OnFormClosed(e);
     }
 
@@ -633,6 +831,99 @@ internal sealed class StatusWindow : Form
                 // 某些无边框窗口管理器会在异步首帧后重置位置，查询完成后再校正一次。
                 PositionMiniWindow();
             }
+        }
+    }
+
+    /// <summary>
+    /// 为定时器、按钮和右键菜单提供统一的异步刷新边界，防止 UI 事件中的未观察异常终止消息循环。
+    /// </summary>
+    private async Task RefreshQuotaSafelyAsync()
+    {
+        try
+        {
+            await RefreshQuotaAsync();
+        }
+        catch (Exception)
+        {
+            if (!cancellation.IsCancellationRequested)
+            {
+                isRefreshing = false;
+                snapshot = QuotaSnapshot.Failure("查询失败", "状态栏未能完成刷新");
+                toolTip.SetToolTip(this, BuildTooltipText());
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 汇总可安全提交到 Issue 的运行信息。这里明确排除令牌、账户标识、代理地址和完整响应。
+    /// </summary>
+    private string BuildDiagnosticReport()
+    {
+        StringBuilder report = new StringBuilder();
+        report.AppendLine("ChatGPT/Codex 状态栏诊断");
+        report.AppendLine();
+        report.AppendLine("系统：" + Environment.OSVersion.VersionString);
+        report.AppendLine("运行时：.NET " + Environment.Version.ToString());
+        report.AppendLine("进程：" + (IntPtr.Size * 8).ToString(CultureInfo.InvariantCulture) + " 位");
+        report.AppendLine(quotaService.GetCredentialDiagnostic());
+        report.AppendLine(quotaService.GetProxyDiagnostic());
+        report.AppendLine("查询状态：" + snapshot.StatusText);
+        report.AppendLine("计划显示：" + snapshot.PlanName);
+        report.AppendLine("额度窗口：" + (snapshot.Windows == null ? 0 : snapshot.Windows.Count).ToString(CultureInfo.InvariantCulture));
+        report.AppendLine("最近查询：" + (snapshot.QueriedAt.HasValue
+            ? snapshot.QueriedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+            : "未查询"));
+        report.AppendLine("开机自启：" + (autoStartEnabled ? "已开启" : "已关闭"));
+        if (!string.IsNullOrWhiteSpace(autoStartError))
+        {
+            report.AppendLine("启动项：" + autoStartError);
+        }
+        if (!snapshot.Success && !string.IsNullOrWhiteSpace(snapshot.ErrorText))
+        {
+            report.AppendLine("错误：" + snapshot.ErrorText);
+        }
+        report.AppendLine();
+        report.AppendLine("诊断信息不包含 Token、账户 ID、代理地址或完整响应。");
+        return report.ToString();
+    }
+
+    private async void RunDiagnostics(object sender, EventArgs e)
+    {
+        await RefreshQuotaSafelyAsync();
+        if (!cancellation.IsCancellationRequested)
+        {
+            ShowDiagnosticReport();
+        }
+    }
+
+    private void ShowDiagnosticReport()
+    {
+        MessageBox.Show(this, BuildDiagnosticReport(), "诊断信息", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void CopyDiagnosticReport()
+    {
+        try
+        {
+            Clipboard.SetText(BuildDiagnosticReport());
+            MessageBox.Show(this, "诊断信息已复制，可安全粘贴到 Issue（不含凭据）。", "复制成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception)
+        {
+            MessageBox.Show(this, "无法访问剪贴板，请使用“运行诊断”查看信息。", "复制失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void OpenProjectPage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(ProjectUrl) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            MessageBox.Show(this, "无法打开项目主页。", "打开失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
@@ -795,6 +1086,7 @@ internal sealed class StatusWindow : Form
         {
             text += "\r\n" + snapshot.ErrorText;
         }
+        text += "\r\n右键：选项、开机自启和诊断";
         return text;
     }
 
@@ -895,21 +1187,7 @@ internal sealed class StatusWindow : Form
         }
         if (refreshArea.Contains(e.Location))
         {
-            try
-            {
-                await RefreshQuotaAsync();
-            }
-            catch (Exception)
-            {
-                // 点击事件也是 async void，保留最后一道 UI 异常边界。
-                if (!cancellation.IsCancellationRequested)
-                {
-                    isRefreshing = false;
-                    snapshot = QuotaSnapshot.Failure("查询失败", "状态栏未能完成刷新");
-                    toolTip.SetToolTip(this, BuildTooltipText());
-                    Invalidate();
-                }
-            }
+            await RefreshQuotaSafelyAsync();
         }
     }
 
@@ -942,8 +1220,18 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new StatusWindow());
+        // 开机自启和手动启动可能同时发生，使用本地互斥体确保屏幕上只有一个状态栏。
+        bool createdNew;
+        using (Mutex mutex = new Mutex(true, "Local\\ChatGPTCodexUsageStatusBar", out createdNew))
+        {
+            if (!createdNew)
+            {
+                return;
+            }
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new StatusWindow());
+        }
     }
 }

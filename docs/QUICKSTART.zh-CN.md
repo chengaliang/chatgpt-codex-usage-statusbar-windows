@@ -59,6 +59,12 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 
 重置时间显示 `MM/dd HH:mm`，悬停状态栏可以查看脱敏账户后缀和错误原因。
 
+## 开机自启与诊断
+
+第一次启动会默认开启当前 Windows 用户的开机自启，不需要管理员权限。状态栏右键菜单中的“开机自启”可以随时关闭或重新开启；程序会记住你的选择，不会在下次启动强行改回。
+
+右键选择“运行诊断”会先重新查询一次，再显示 OAuth 配置、计划、网络模式、额度窗口数量、最近查询时间和启动项状态。选择“复制诊断信息”可复制一份适合提交 Issue 的脱敏摘要，其中不包含 Token、账户 ID、代理地址或完整响应。
+
 ## 操作方式
 
 | 操作 | 方法 |
@@ -67,6 +73,7 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | 手动刷新 | 点击圆形箭头 |
 | 关闭 | 点击 `×` |
 | 查看详情 | 鼠标悬停 |
+| 选项与诊断 | 右键状态栏 |
 
 程序每 5 分钟自动刷新一次。拖动过窗口后，自动定位不会再抢回你选择的位置。
 
@@ -108,4 +115,5 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 - 本项目不包含任何个人 `auth.json`、Token、账户 ID、桌面截图或真实额度数据。
 - OAuth Token 只在内存中用于固定 HTTPS 请求，不写日志、不写回文件、不上传 GitHub。
 - Tooltip 只显示账户 ID 的末四位。
+- 右键复制的诊断摘要会主动隐藏 Token、账户 ID、代理地址和完整响应，提交前仍请自行快速检查。
 - 官方后端接口可能变化，接口异常时程序只显示错误状态，不显示响应原文。

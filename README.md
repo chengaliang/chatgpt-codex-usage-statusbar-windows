@@ -8,6 +8,8 @@
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
+首次启动默认加入当前 Windows 用户的开机启动项，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供立即刷新、运行诊断、复制脱敏诊断信息和打开项目主页，遇到问题可以直接把诊断摘要贴到 Issue。
+
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the UI at about 320×40 pixels.
 
 ## Why This Project
@@ -28,6 +30,7 @@
 - **Local OAuth only**: reads `%USERPROFILE%\.codex\auth.json` or `%CODEX_HOME%\auth.json`; never writes credentials back.
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
+- **Startup & diagnostics**: first launch enables current-user startup by default; right-click to toggle it, run a fresh health check, copy a redacted issue report, or open the project page.
 - **No runtime dependency installer**: the checked-in executable can be launched directly, or rebuilt with the .NET Framework compiler already included in Windows.
 
 ## Quick Start
@@ -44,12 +47,12 @@ The app expects ChatGPT OAuth mode and an `auth.json` under the Codex home direc
 
 ## Download
 
-For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.1.3](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/download/v0.1.3/SubscriptionStatus.exe).
+For a ready-to-run Windows binary, download [`SubscriptionStatus.exe` from v0.2.0](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/releases/download/v0.2.0/SubscriptionStatus.exe).
 The executable is also included in the repository for source review and offline use.
 
 ### 2. Launch the mini bar
 
-Double-click [`start-statusbar.cmd`](start-statusbar.cmd) or [`launcher.vbs`](launcher.vbs). The current release keeps one compact bar above the taskbar.
+Double-click [`start-statusbar.cmd`](start-statusbar.cmd) or [`launcher.vbs`](launcher.vbs). The first launch enables startup for the current Windows user; the app keeps one compact bar above the taskbar.
 Without a custom proxy, the app uses Windows system proxy settings or a direct connection. If your network needs Clash Verge or another local HTTP/HTTPS proxy, set `CLASH_MIXED_PROXY` before launching:
 
 ```powershell
@@ -63,6 +66,7 @@ Start-Process -FilePath .\SubscriptionStatus.exe -WorkingDirectory $PWD
 | Refresh | Click the circular-arrow icon |
 | Close | Click the `×` icon |
 | Details | Hover over the bar |
+| Options | Right-click the bar for startup and diagnostics |
 
 The bar refreshes automatically every five minutes.
 
@@ -110,6 +114,10 @@ The app uses Windows system proxy settings or a direct connection by default. If
 
 Run [`start-statusbar.cmd`](start-statusbar.cmd) again. The app positions itself inside the primary work area and rechecks its position after the first query. Dragging the bar disables automatic repositioning.
 
+### Startup or diagnostics
+
+Right-click the bar to turn current-user startup on or off. **Run diagnostics** refreshes the official endpoint and shows only safe status details. **Copy diagnostic info** is redacted for issue reports and does not include tokens, account IDs, proxy addresses or full responses.
+
 ## 持续维护与反馈
 
 项目目标是长期跟进 ChatGPT/Codex 官方额度接口的变化，定期修复可复现问题，并持续优化兼容性、稳定性和使用体验。欢迎通过 [Issues](https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows/issues) 提交：
@@ -118,10 +126,10 @@ Run [`start-statusbar.cmd`](start-statusbar.cmd) again. The app positions itself
 - Windows 版本、显示缩放和窗口布局问题
 - 清晰可复现的功能建议和改进想法
 
-提交问题前请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。反馈中不要粘贴 `auth.json`、OAuth Token、账户 ID、完整响应或个人截图；每次发布会在 Release 中记录变更。项目对你有帮助时，欢迎点 Star、Watch 或分享给有同样需求的人，这能帮助维护工作持续获得优先级。
+提交问题前请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。反馈中不要粘贴 `auth.json`、OAuth Token、账户 ID、完整响应或个人截图；也可以先在状态栏右键选择“复制诊断信息”，提交已脱敏摘要。每次发布会在 Release 中记录变更。项目对你有帮助时，欢迎点 Star、Watch 或分享给有同样需求的人，这能帮助维护工作持续获得优先级。
 
 ## Search Keywords
 
-`chatgpt usage limits` · `chatgpt quota` · `chatgpt plus quota` · `chatgpt pro quota` · `chatgpt team quota` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `oauth` · `clash-verge` · `usage monitor`
+`chatgpt usage limits` · `chatgpt quota` · `chatgpt plus quota` · `chatgpt pro quota` · `chatgpt team quota` · `codex-cli` · `codex quota` · `subscription status bar` · `windows desktop widget` · `windows startup` · `diagnostics` · `oauth` · `clash-verge` · `usage monitor`
 
 If this saves you time, a ⭐ on GitHub helps other users find the project.
