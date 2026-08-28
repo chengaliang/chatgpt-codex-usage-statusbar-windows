@@ -820,7 +820,7 @@ internal sealed class StatusWindow : Form
         menu.ShowImageMargin = false;
 
         ToolStripMenuItem hubItem = new ToolStripMenuItem("打开 Usage Hub");
-        hubItem.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+        hubItem.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Bold);
         hubItem.Click += delegate(object sender, EventArgs args) { ShowUsageHub(); };
 
         ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
@@ -1650,7 +1650,7 @@ internal sealed class StatusWindow : Form
                 }
             }
 
-            // 保持低频的待机呼吸和高光扫描，让状态栏在不刷新时也有明确的生命感；隐藏到托盘时会停止计时器。
+            // 保持低频的待机呼吸，让状态栏在不刷新时也有明确的生命感；隐藏到托盘时会停止计时器。
             if (!Visible)
             {
                 visualAnimationActive = false;
@@ -2139,21 +2139,19 @@ internal sealed class StatusWindow : Form
             g.FillRectangle(background, ClientRectangle);
         }
 
-        using (Pen topLine = new Pen(UiTheme.WithAlpha(themePalette.PrimaryAccent, 190), 2f))
+        int topLineAlpha = 190;
+        if (settings.AnimationsEnabled && visualAnimationActive)
+        {
+            double breath = (Math.Sin(visualPhase * 0.72d) + 1d) / 2d;
+            topLineAlpha = 166 + (int)Math.Round(breath * 54d);
+        }
+        using (Pen topLine = new Pen(UiTheme.WithAlpha(themePalette.PrimaryAccent, topLineAlpha), 2f))
         {
             g.DrawLine(topLine, 10, 1, WindowWidth - 10, 1);
         }
 
         DrawRefreshCelebration(g);
-
-        if (settings.AnimationsEnabled)
-        {
-            int sweepX = 8 + (int)((WindowWidth - 16) * ((Math.Sin(visualPhase * 0.55d) + 1d) / 2d));
-            using (Pen sweep = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, 48), 1f))
-            {
-                g.DrawLine(sweep, sweepX, 4, sweepX, WindowHeight - 4);
-            }
-        }
+        DrawAmbientPulse(g);
 
         Color borderColor = visualAnimationActive && settings.AnimationsEnabled
             ? BlendColors(themePalette.Border, themePalette.PrimaryAccent, 0.35f)
@@ -2181,12 +2179,12 @@ internal sealed class StatusWindow : Form
         Color statusColor = GetOverallStatusColor();
         if (settings.AnimationsEnabled && visualAnimationActive)
         {
-            double wave = (Math.Sin(visualPhase) + 1d) / 2d;
-            int haloAlpha = 22 + (int)Math.Round(wave * 30d);
-            int haloSize = 11 + (int)Math.Round(wave * 4d);
+            double wave = (Math.Sin(visualPhase * 0.9d) + 1d) / 2d;
+            int haloAlpha = 18 + (int)Math.Round(wave * 28d);
+            int haloSize = 11 + (int)Math.Round(wave * 5d);
             using (SolidBrush halo = new SolidBrush(Color.FromArgb(haloAlpha, statusColor)))
             {
-                g.FillEllipse(halo, 13 - haloSize / 2, 20 - haloSize / 2, haloSize, haloSize);
+                g.FillEllipse(halo, 14 - haloSize / 2, 21 - haloSize / 2, haloSize, haloSize);
             }
         }
         using (SolidBrush dot = new SolidBrush(statusColor))
@@ -2194,12 +2192,21 @@ internal sealed class StatusWindow : Form
             g.FillEllipse(dot, 10, 17, 8, 8);
         }
 
-        DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 9f, FontStyle.Bold, themePalette.PrimaryText, 23, 8);
+        DrawAlignedText(
+            g,
+            CompactPlanName(),
+            UiTheme.UiFontFamily,
+            9.2f,
+            FontStyle.Bold,
+            themePalette.PrimaryText,
+            new Rectangle(23, 5, 51, 20),
+            StringAlignment.Near,
+            StringAlignment.Center);
     }
 
     /// <summary>
-    /// 绘制一次成功刷新后的同步脉冲。扫描线和星芒只在本次在线额度返回后短暂出现，
-    /// 让用户能明确感知“数据已经换新”，但不改变任何真实数字或状态颜色。
+    /// 绘制一次成功刷新后的固定中心律动。动画只改变同心脉冲的半径和透明度，
+    /// 不在状态栏上横向扫过，避免干扰数字阅读。
     /// </summary>
     private void DrawRefreshCelebration(Graphics g)
     {
@@ -2209,38 +2216,31 @@ internal sealed class StatusWindow : Form
         }
 
         float progress = Math.Max(0f, Math.Min(1f, refreshCelebrationProgress));
-        float eased = 1f - (float)Math.Pow(1f - progress, 3d);
         float fade = 1f - progress;
-        float sweepX = 12f + (WindowWidth - 24f) * eased;
-        for (int trail = 0; trail < 4; trail++)
+        float centerX = 282f;
+        float centerY = 20f;
+        float pulse = (float)Math.Sin(progress * Math.PI);
+        for (int ringIndex = 0; ringIndex < 2; ringIndex++)
         {
-            float x = sweepX - trail * 8f;
-            int alpha = Math.Max(0, (int)Math.Round((78f - trail * 16f) * fade));
-            using (Pen beam = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, alpha), 1f + trail * 0.35f))
+            float ringProgress = Math.Min(1f, progress + ringIndex * 0.16f);
+            float radius = 7f + ringProgress * 12f;
+            int ringAlpha = Math.Max(0, (int)Math.Round((142f - ringIndex * 35f) * (1f - ringProgress)));
+            using (Pen ring = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, ringAlpha), 1.2f + pulse * 0.5f))
             {
-                g.DrawLine(beam, x, 4 + trail, x, WindowHeight - 5 - trail);
+                g.DrawEllipse(ring, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
             }
         }
 
-        float centerX = 282f;
-        float centerY = 20f;
-        float radius = 8f + progress * 13f;
-        int ringAlpha = Math.Max(0, (int)Math.Round(155f * fade));
-        using (Pen ring = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, ringAlpha), 1.4f))
-        {
-            g.DrawEllipse(ring, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
-        }
-
-        int rayAlpha = Math.Max(0, (int)Math.Round(190f * fade));
+        int rayAlpha = Math.Max(0, (int)Math.Round(120f * fade));
         using (Pen rays = new Pen(UiTheme.WithAlpha(themePalette.PrimaryAccent, rayAlpha), 1.1f))
         {
             rays.StartCap = LineCap.Round;
             rays.EndCap = LineCap.Round;
             for (int index = 0; index < 8; index++)
             {
-                double angle = index * Math.PI / 4d + progress * Math.PI * 0.75d;
-                float inner = radius + 3f;
-                float outer = inner + 3f + 3f * fade;
+                double angle = index * Math.PI / 4d;
+                float inner = 9f + pulse * 2f;
+                float outer = inner + 2f + 2f * fade;
                 float x1 = centerX + (float)Math.Cos(angle) * inner;
                 float y1 = centerY + (float)Math.Sin(angle) * inner;
                 float x2 = centerX + (float)Math.Cos(angle) * outer;
@@ -2284,16 +2284,35 @@ internal sealed class StatusWindow : Form
     {
         double usedPercent = window == null ? 0d : window.UsedPercent;
         string percentage = window == null ? "--" : usedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
-        int trackWidth = bounds.Width - 4;
+        int trackWidth = Math.Max(1, bounds.Width - 6);
         double safeVisualPercent = Math.Max(0d, Math.Min(100d, visualPercent));
         int fillWidth = (int)Math.Round(trackWidth * safeVisualPercent / 100d);
         fillWidth = Math.Max(0, Math.Min(trackWidth, fillWidth));
         Color fillColor = GetUsageColor(usedPercent, accent);
 
-        DrawText(g, compactName, "Consolas", 7.2f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 9);
-        DrawTextRight(g, percentage, "Consolas", 10f, FontStyle.Bold, themePalette.PrimaryText, bounds.Right, 7);
+        Rectangle header = new Rectangle(bounds.Left + 3, 5, bounds.Width - 6, 17);
+        DrawAlignedText(
+            g,
+            compactName,
+            UiTheme.UiFontFamily,
+            7.8f,
+            FontStyle.Bold,
+            themePalette.SecondaryText,
+            header,
+            StringAlignment.Near,
+            StringAlignment.Center);
+        DrawAlignedText(
+            g,
+            percentage,
+            UiTheme.UiFontFamily,
+            10.2f,
+            FontStyle.Bold,
+            themePalette.PrimaryText,
+            header,
+            StringAlignment.Far,
+            StringAlignment.Center);
 
-        Rectangle track = new Rectangle(bounds.Left, 27, trackWidth, 5);
+        Rectangle track = new Rectangle(bounds.Left + 1, 28, trackWidth, 5);
         using (SolidBrush trackBrush = new SolidBrush(themePalette.Track))
         using (GraphicsPath trackPath = RoundedRectangle(track, 2))
         {
@@ -2315,11 +2334,11 @@ internal sealed class StatusWindow : Form
                 g.FillPath(fillBrush, fillPath);
                 if (settings.AnimationsEnabled && visualAnimationActive && fill.Width > 7)
                 {
-                    double wave = (Math.Sin(visualPhase) + 1d) / 2d;
-                    int shineX = fill.Left + (int)Math.Round((fill.Width - 3) * wave);
-                    using (SolidBrush shine = new SolidBrush(Color.FromArgb(145, Color.White)))
+                    double wave = (Math.Sin(visualPhase * 0.85d) + 1d) / 2d;
+                    int highlightAlpha = 45 + (int)Math.Round(wave * 48d);
+                    using (SolidBrush shine = new SolidBrush(Color.FromArgb(highlightAlpha, Color.White)))
                     {
-                        g.FillRectangle(shine, shineX, fill.Top - 1, 2, fill.Height + 2);
+                        g.FillRectangle(shine, fill.Left + 1, fill.Top, Math.Max(1, fill.Width - 2), 1);
                     }
                 }
             }
@@ -2327,7 +2346,16 @@ internal sealed class StatusWindow : Form
 
         // 底部直接显示日期和下一次重置时间；扩大额度列宽度后避免日期与分隔线重叠。
         string reset = window == null ? "--" : FormatVisibleReset(window.ResetAt);
-        DrawText(g, reset, "Consolas", 7.2f, FontStyle.Bold, themePalette.SecondaryText, bounds.Left, 37);
+        DrawAlignedText(
+            g,
+            reset,
+            UiTheme.UiFontFamily,
+            8f,
+            FontStyle.Bold,
+            themePalette.SecondaryText,
+            new Rectangle(bounds.Left + 1, 36, bounds.Width - 2, 16),
+            StringAlignment.Center,
+            StringAlignment.Center);
     }
 
     private void DrawStatus(Graphics g)
@@ -2335,15 +2363,35 @@ internal sealed class StatusWindow : Form
         Color statusColor = GetOverallStatusColor();
         if (settings.AnimationsEnabled && visualAnimationActive)
         {
-            double wave = (Math.Sin(visualPhase + 1.2d) + 1d) / 2d;
-            using (Pen pulse = new Pen(Color.FromArgb(45 + (int)Math.Round(wave * 35d), statusColor), 1f))
+            double wave = (Math.Sin(visualPhase * 0.85d + 1.2d) + 1d) / 2d;
+            float radius = 5.5f + (float)(wave * 2.5d);
+            using (Pen pulse = new Pen(Color.FromArgb(38 + (int)Math.Round(wave * 42d), statusColor), 1f))
             {
-                g.DrawEllipse(pulse, 276, 14, 11, 11);
+                g.DrawEllipse(pulse, 282f - radius, 20f - radius, radius * 2f, radius * 2f);
             }
         }
         using (SolidBrush dot = new SolidBrush(statusColor))
         {
             g.FillEllipse(dot, 279, 17, 6, 6);
+        }
+    }
+
+    /// <summary>
+    /// 为常驻状态栏提供几乎静止的整体呼吸边缘。固定位置的透明度变化不会打断窄条信息的阅读节奏。
+    /// </summary>
+    private void DrawAmbientPulse(Graphics g)
+    {
+        if (!settings.AnimationsEnabled || !visualAnimationActive)
+        {
+            return;
+        }
+
+        double wave = (Math.Sin(visualPhase * 0.72d) + 1d) / 2d;
+        int alpha = 8 + (int)Math.Round(wave * 15d);
+        using (Pen pulse = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, alpha), 1f))
+        using (GraphicsPath path = RoundedRectangle(new Rectangle(4, 4, WindowWidth - 9, WindowHeight - 9), 8))
+        {
+            g.DrawPath(pulse, path);
         }
     }
 
@@ -2568,22 +2616,26 @@ internal sealed class StatusWindow : Form
         }
     }
 
-    private static void DrawText(Graphics g, string text, string family, float size, FontStyle style, Color color, float x, float y)
+    private static void DrawAlignedText(
+        Graphics g,
+        string text,
+        string family,
+        float size,
+        FontStyle style,
+        Color color,
+        Rectangle bounds,
+        StringAlignment horizontal,
+        StringAlignment vertical)
     {
         using (Font font = new Font(family, size, style, GraphicsUnit.Point))
         using (SolidBrush brush = new SolidBrush(color))
+        using (StringFormat format = new StringFormat())
         {
-            g.DrawString(text ?? string.Empty, font, brush, x, y);
-        }
-    }
-
-    private static void DrawTextRight(Graphics g, string text, string family, float size, FontStyle style, Color color, float right, float y)
-    {
-        using (Font font = new Font(family, size, style, GraphicsUnit.Point))
-        using (SolidBrush brush = new SolidBrush(color))
-        {
-            SizeF measured = g.MeasureString(text ?? string.Empty, font);
-            g.DrawString(text ?? string.Empty, font, brush, right - measured.Width, y);
+            format.Alignment = horizontal;
+            format.LineAlignment = vertical;
+            format.FormatFlags = StringFormatFlags.NoWrap;
+            format.Trimming = StringTrimming.EllipsisCharacter;
+            g.DrawString(text ?? string.Empty, font, brush, bounds, format);
         }
     }
 

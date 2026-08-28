@@ -79,7 +79,7 @@ internal sealed class DiagnosticsForm : Form
         Label title = new Label();
         title.Text = "诊断中心";
         title.AutoSize = true;
-        title.Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold);
+        title.Font = new Font(UiTheme.CjkFontFamily, 16f, FontStyle.Bold);
         title.ForeColor = palette.PrimaryText;
         title.Anchor = AnchorStyles.Left;
         title.AccessibleName = "诊断中心标题";
@@ -125,7 +125,7 @@ internal sealed class DiagnosticsForm : Form
         reportBox.ScrollBars = ScrollBars.Both;
         reportBox.WordWrap = false;
         reportBox.Dock = DockStyle.Fill;
-        reportBox.Font = new Font("Consolas", 9f);
+        reportBox.Font = new Font(UiTheme.UiFontFamily, 9f);
         reportBox.BackColor = palette.ControlBackground;
         reportBox.ForeColor = palette.PrimaryText;
         reportBox.BorderStyle = BorderStyle.FixedSingle;
@@ -487,7 +487,7 @@ internal sealed class DiagnosticsForm : Form
         status.Width = 62;
         status.Dock = DockStyle.Left;
         status.TextAlign = ContentAlignment.MiddleCenter;
-        status.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Bold);
+        status.Font = new Font(UiTheme.CjkFontFamily, 8.5f, FontStyle.Bold);
         status.ForeColor = GetStatusColor(safeCheck.Status);
         status.BackColor = UiTheme.WithAlpha(GetStatusColor(safeCheck.Status), 26);
 
@@ -505,7 +505,7 @@ internal sealed class DiagnosticsForm : Form
         detail.AutoSize = false;
         detail.Dock = DockStyle.Fill;
         detail.TextAlign = ContentAlignment.MiddleLeft;
-        detail.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+        detail.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Regular);
         detail.ForeColor = palette.PrimaryText;
         detail.AutoEllipsis = true;
 

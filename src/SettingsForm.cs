@@ -73,13 +73,13 @@ internal sealed class SettingsForm : Form
         Label title = new Label();
         title.Text = "状态栏设置";
         title.AutoSize = true;
-        title.Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold);
+        title.Font = new Font(UiTheme.CjkFontFamily, 16f, FontStyle.Bold);
         title.ForeColor = palette.PrimaryText;
         title.Location = new Point(0, 0);
         Label hint = new Label();
         hint.Text = "调整外观、刷新节奏和隐私友好的本地体验";
         hint.AutoSize = true;
-        hint.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
+        hint.Font = new Font(UiTheme.CjkFontFamily, 8.5f, FontStyle.Regular);
         hint.ForeColor = palette.SecondaryText;
         hint.Location = new Point(2, 29);
         header.Controls.Add(title);
@@ -282,7 +282,7 @@ internal sealed class SettingsForm : Form
         ComboBox combo = new ComboBox();
         combo.DropDownStyle = ComboBoxStyle.DropDownList;
         combo.FlatStyle = FlatStyle.Flat;
-        combo.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+        combo.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Regular);
         combo.Dock = DockStyle.Fill;
         combo.MaxDropDownItems = 8;
         return combo;
@@ -294,7 +294,7 @@ internal sealed class SettingsForm : Form
         label.Text = labelText;
         label.AutoSize = true;
         label.Anchor = AnchorStyles.Left;
-        label.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+        label.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Regular);
         label.Margin = new Padding(0, 0, 8, 0);
         control.Margin = new Padding(0, 2, 0, 2);
         if (string.IsNullOrWhiteSpace(control.AccessibleName))
@@ -315,7 +315,7 @@ internal sealed class SettingsForm : Form
                 child.ForeColor = palette.PrimaryText;
                 child.BackColor = Color.Transparent;
                 child.Font = child is CheckBox
-                    ? new Font("Microsoft YaHei UI", 9f, FontStyle.Regular)
+                    ? new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Regular)
                     : child.Font;
             }
             else if (child is ComboBox)
@@ -324,13 +324,13 @@ internal sealed class SettingsForm : Form
                 child.BackColor = palette.ControlBackground;
                 ComboBox combo = (ComboBox)child;
                 combo.FlatStyle = FlatStyle.Flat;
-                combo.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+                combo.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Regular);
             }
             else if (child is NumericUpDown)
             {
                 child.ForeColor = palette.PrimaryText;
                 child.BackColor = palette.ControlBackground;
-                child.Font = new Font("Consolas", 9f, FontStyle.Regular);
+                child.Font = new Font(UiTheme.UiFontFamily, 9f, FontStyle.Regular);
                 ((NumericUpDown)child).BorderStyle = BorderStyle.FixedSingle;
             }
             else if (child is Button)

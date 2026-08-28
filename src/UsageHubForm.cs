@@ -574,26 +574,22 @@ internal sealed class UsageHubSurface : Control
             }
         }
 
-        using (Pen topLine = new Pen(UiTheme.WithAlpha(palette.PrimaryAccent, 210), 2f))
+        int topLineAlpha = 210;
+        if (animationsEnabled)
+        {
+            double wave = (Math.Sin(phase * 0.72d) + 1d) / 2d;
+            topLineAlpha = 178 + (int)Math.Round(wave * 32d);
+        }
+        using (Pen topLine = new Pen(UiTheme.WithAlpha(palette.PrimaryAccent, topLineAlpha), 2f))
         {
             g.DrawLine(topLine, 30, 1, Width - 30, 1);
         }
-
-        if (animationsEnabled)
-        {
-            float progress = (float)((Math.Sin(phase * 0.7f) + 1d) / 2d);
-            int sweepX = 30 + (int)((Width - 60) * progress);
-            using (Pen sweep = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, refreshing ? 115 : 48), 1f))
-            {
-                g.DrawLine(sweep, sweepX, 18, sweepX, Height - 78);
-            }
-        }
-
+        DrawAmbientRhythm(g);
         DrawRefreshBurst(g);
     }
 
     /// <summary>
-    /// 绘制从左到右穿过工作区的刷新能量带。它只服务于一次成功刷新，不与持续待机扫描混淆。
+    /// 绘制固定中心的刷新律动。只改变同心圆的透明度和半径，不让光束横向扫过内容区域。
     /// </summary>
     private void DrawRefreshBurst(Graphics g)
     {
@@ -603,37 +599,55 @@ internal sealed class UsageHubSurface : Control
         }
 
         float progress = Math.Max(0f, Math.Min(1f, refreshBurstProgress));
-        float eased = 1f - (float)Math.Pow(1f - progress, 3d);
-        float fade = 1f - progress;
-        float sweepX = 24f + (Width - 48f) * eased;
-        for (int trail = 0; trail < 5; trail++)
+        float pulse = (float)Math.Sin(progress * Math.PI);
+        Rectangle pill = GetStatusPillBounds(g);
+        float centerX = pill.Left + pill.Width / 2f;
+        float centerY = pill.Top + pill.Height / 2f;
+        for (int ringIndex = 0; ringIndex < 3; ringIndex++)
         {
-            float x = sweepX - trail * 11f;
-            int alpha = Math.Max(0, (int)Math.Round((70f - trail * 11f) * fade));
-            using (Pen beam = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, alpha), 1f + trail * 0.35f))
+            float ringProgress = Math.Min(1f, progress + ringIndex * 0.13f);
+            float radius = 16f + ringProgress * 22f;
+            int alpha = Math.Max(0, (int)Math.Round((90f - ringIndex * 18f) * (1f - ringProgress)));
+            using (Pen ring = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, alpha), 1.1f + pulse * 0.45f))
             {
-                g.DrawLine(beam, x, 92 + trail * 3, x, Height - 92 - trail * 3);
+                g.DrawEllipse(ring, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
             }
+        }
+    }
+
+    /// <summary>
+    /// 以固定的边缘呼吸维持工作区的生命感。透明度低、位置固定，确保文字和趋势图始终稳定可读。
+    /// </summary>
+    private void DrawAmbientRhythm(Graphics g)
+    {
+        if (!animationsEnabled)
+        {
+            return;
+        }
+
+        double wave = (Math.Sin(phase * 0.72d) + 1d) / 2d;
+        float radius = 22f + (float)(wave * 6d);
+        int alpha = 9 + (int)Math.Round(wave * 12d);
+        Rectangle pill = GetStatusPillBounds(g);
+        float centerX = pill.Left + pill.Width / 2f;
+        float centerY = pill.Top + pill.Height / 2f;
+        using (Pen glow = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, alpha), 1f))
+        {
+            g.DrawEllipse(glow, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
         }
     }
 
     private void DrawHeader(Graphics g)
     {
         int alpha = GetEntranceAlpha();
-        DrawText(g, "Usage Hub", "Microsoft YaHei UI", 23f, FontStyle.Bold, UiTheme.WithAlpha(palette.PrimaryText, alpha), 36, 24);
+        DrawAlignedText(g, "Usage Hub", UiTheme.UiFontFamily, 23f, FontStyle.Bold, UiTheme.WithAlpha(palette.PrimaryText, alpha), new Rectangle(36, 18, 470, 38), StringAlignment.Near, StringAlignment.Center);
         string plan = snapshot == null || string.IsNullOrWhiteSpace(snapshot.PlanName) ? "ChatGPT / Codex" : "ChatGPT / Codex · " + snapshot.PlanName;
-        DrawText(g, plan, "Microsoft YaHei UI", 9.5f, FontStyle.Regular, UiTheme.WithAlpha(palette.SecondaryText, alpha), 38, 58);
-        DrawText(g, "健康度 · " + healthLabel, "Microsoft YaHei UI", 8.5f, FontStyle.Bold, UiTheme.WithAlpha(GetHealthColor(), alpha), 38, 77);
+        DrawAlignedText(g, plan, UiTheme.CjkFontFamily, 9.5f, FontStyle.Regular, UiTheme.WithAlpha(palette.SecondaryText, alpha), new Rectangle(38, 55, 500, 18), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, "健康度 · " + healthLabel, UiTheme.CjkFontFamily, 8.5f, FontStyle.Bold, UiTheme.WithAlpha(GetHealthColor(), alpha), new Rectangle(38, 73, 500, 18), StringAlignment.Near, StringAlignment.Center);
 
         string status = GetStatusText(snapshot);
         Color statusColor = GetStatusColor(snapshot);
-        SizeF statusSize;
-        using (Font font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold))
-        {
-            statusSize = g.MeasureString(status, font);
-        }
-        int pillWidth = (int)Math.Ceiling(statusSize.Width) + 34;
-        Rectangle pill = new Rectangle(Width - pillWidth - 38, 34, pillWidth, 30);
+        Rectangle pill = GetStatusPillBounds(g);
         using (GraphicsPath path = RoundedRectangle(pill, 15))
         using (SolidBrush fill = new SolidBrush(UiTheme.WithAlpha(statusColor, 28)))
         using (Pen border = new Pen(UiTheme.WithAlpha(statusColor, 145), 1f))
@@ -646,7 +660,20 @@ internal sealed class UsageHubSurface : Control
             float pulse = animationsEnabled ? (float)((Math.Sin(phase * 1.5f) + 1d) * 1.5d) : 0f;
             g.FillEllipse(dot, pill.Left + 12 - pulse, pill.Top + 12 - pulse, 6 + pulse * 2f, 6 + pulse * 2f);
         }
-        DrawText(g, status, "Microsoft YaHei UI", 9f, FontStyle.Bold, statusColor, pill.Left + 24, pill.Top + 7);
+        DrawAlignedText(g, status, UiTheme.CjkFontFamily, 9f, FontStyle.Bold, statusColor, new Rectangle(pill.Left + 24, pill.Top + 1, pill.Width - 30, pill.Height - 2), StringAlignment.Near, StringAlignment.Center);
+    }
+
+    private Rectangle GetStatusPillBounds(Graphics g)
+    {
+        string status = GetStatusText(snapshot);
+        SizeF statusSize;
+        using (Font font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Bold))
+        {
+            statusSize = g.MeasureString(status, font);
+        }
+
+        int pillWidth = (int)Math.Ceiling(statusSize.Width) + 34;
+        return new Rectangle(Width - pillWidth - 38, 34, pillWidth, 30);
     }
 
     private void DrawMetricCards(Graphics g)
@@ -666,7 +693,7 @@ internal sealed class UsageHubSurface : Control
     {
         using (GraphicsPath cardPath = RoundedRectangle(bounds, 14))
         using (SolidBrush cardBrush = new SolidBrush(UiTheme.WithAlpha(palette.Surface, 238)))
-        using (Pen cardBorder = new Pen(UiTheme.WithAlpha(palette.ControlBorder, 205), 1f))
+        using (Pen cardBorder = new Pen(UiTheme.WithAlpha(palette.ControlBorder, GetRhythmAlpha(190, 18)), 1f))
         {
             g.FillPath(cardBrush, cardPath);
             g.DrawPath(cardBorder, cardPath);
@@ -679,7 +706,16 @@ internal sealed class UsageHubSurface : Control
         {
             g.FillPath(badgeBrush, badgePath);
         }
-        DrawText(g, badge, "Consolas", 7f, FontStyle.Bold, accent, bounds.Left + 29, bounds.Top + 22);
+        DrawAlignedText(
+            g,
+            badge,
+            UiTheme.UiFontFamily,
+            7.2f,
+            FontStyle.Bold,
+            accent,
+            new Rectangle(bounds.Left + 18, bounds.Top + 17, 72, 22),
+            StringAlignment.Center,
+            StringAlignment.Center);
 
         int centerX = bounds.Left + 90;
         int centerY = bounds.Top + 104;
@@ -694,54 +730,57 @@ internal sealed class UsageHubSurface : Control
             progress.EndCap = LineCap.Round;
             Rectangle ring = new Rectangle(centerX - radius, centerY - radius, radius * 2, radius * 2);
             g.DrawArc(track, ring, -90f, 300f);
-            float sweep = (float)(300d * Math.Max(0d, Math.Min(100d, animatedPercent)) / 100d);
-            if (sweep > 0f)
+            float progressArc = (float)(300d * Math.Max(0d, Math.Min(100d, animatedPercent)) / 100d);
+            if (progressArc > 0f)
             {
                 if (animationsEnabled)
                 {
-                    g.DrawArc(glow, ring, -90f, sweep);
+                    g.DrawArc(glow, ring, -90f, progressArc);
                 }
-                g.DrawArc(progress, ring, -90f, sweep);
+                g.DrawArc(progress, ring, -90f, progressArc);
             }
             if (refreshing && animationsEnabled)
             {
-                using (Pen scan = new Pen(UiTheme.WithAlpha(Color.White, 150), 2f))
+                double wave = (Math.Sin(phase * 0.72d) + 1d) / 2d;
+                using (Pen pulse = new Pen(UiTheme.WithAlpha(Color.White, 58 + (int)Math.Round(wave * 70d)), 1.5f + (float)(wave * 1.1d)))
                 {
-                    g.DrawArc(scan, ring, -90f + phase * 24f, 20f);
+                    g.DrawArc(pulse, ring, -90f, 300f);
                 }
             }
             else if (refreshBurstActive && animationsEnabled)
             {
-                int scanAlpha = Math.Max(0, (int)Math.Round(185f * (1f - refreshBurstProgress)));
-                using (Pen scan = new Pen(UiTheme.WithAlpha(Color.White, scanAlpha), 2.5f))
+                float burstPulse = (float)Math.Sin(refreshBurstProgress * Math.PI);
+                int pulseAlpha = Math.Max(0, (int)Math.Round(75f + burstPulse * 95f));
+                using (Pen pulse = new Pen(UiTheme.WithAlpha(Color.White, pulseAlpha), 1.7f + burstPulse * 1.2f))
                 {
-                    g.DrawArc(scan, ring, -90f + refreshBurstProgress * 330f, 28f);
+                    g.DrawArc(pulse, ring, -90f, 300f);
                 }
             }
         }
 
         string percentage = window == null ? "--" : window.UsedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%";
-        DrawTextCentered(g, percentage, "Consolas", 21f, FontStyle.Bold, palette.PrimaryText, centerX, centerY - 10);
-        DrawTextCentered(g, "已使用", "Microsoft YaHei UI", 7.5f, FontStyle.Regular, palette.SecondaryText, centerX, centerY + 18);
+        DrawAlignedText(g, percentage, UiTheme.UiFontFamily, 21f, FontStyle.Bold, palette.PrimaryText, new Rectangle(centerX - 52, centerY - 20, 104, 32), StringAlignment.Center, StringAlignment.Center);
+        DrawAlignedText(g, "已使用", UiTheme.CjkFontFamily, 7.5f, FontStyle.Regular, palette.SecondaryText, new Rectangle(centerX - 52, centerY + 10, 104, 20), StringAlignment.Center, StringAlignment.Center);
 
         int textLeft = bounds.Left + 166;
+        int textWidth = Math.Max(72, bounds.Right - textLeft - 18);
         string title = window == null ? "额度窗口" : window.Name;
-        DrawText(g, title, "Microsoft YaHei UI", 12f, FontStyle.Bold, palette.PrimaryText, textLeft, bounds.Top + 44);
+        DrawAlignedText(g, title, UiTheme.CjkFontFamily, 12f, FontStyle.Bold, palette.PrimaryText, new Rectangle(textLeft, bounds.Top + 40, textWidth, 23), StringAlignment.Near, StringAlignment.Center);
         if (window == null)
         {
-            DrawText(g, "等待首次成功刷新", "Microsoft YaHei UI", 9f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 76);
+            DrawAlignedText(g, "等待首次成功刷新", UiTheme.CjkFontFamily, 9f, FontStyle.Regular, palette.SecondaryText, new Rectangle(textLeft, bounds.Top + 70, textWidth, 24), StringAlignment.Near, StringAlignment.Center);
             return;
         }
 
         double remaining = Math.Max(0d, 100d - window.UsedPercent);
-        DrawText(g, "剩余 " + remaining.ToString("0.#", CultureInfo.InvariantCulture) + "%", "Consolas", 10f, FontStyle.Bold, GetUsageColor(window, accent), textLeft, bounds.Top + 74);
-        DrawText(g, "下次重置", "Microsoft YaHei UI", 8f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 104);
-        DrawText(g, FormatReset(window.ResetAt), "Consolas", 10f, FontStyle.Bold, palette.PrimaryText, textLeft, bounds.Top + 121);
-        DrawText(g, FormatCountdown(window.ResetAt), "Microsoft YaHei UI", 8f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 145);
-        DrawText(g, insight == null ? "等待历史趋势" : insight.GetRateText(), "Consolas", 7.5f, FontStyle.Bold, GetInsightColor(insight), textLeft, bounds.Top + 161);
+        DrawAlignedText(g, "剩余 " + remaining.ToString("0.#", CultureInfo.InvariantCulture) + "%", UiTheme.UiFontFamily, 10f, FontStyle.Bold, GetUsageColor(window, accent), new Rectangle(textLeft, bounds.Top + 67, textWidth, 22), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, "下次重置", UiTheme.CjkFontFamily, 8f, FontStyle.Regular, palette.SecondaryText, new Rectangle(textLeft, bounds.Top + 91, textWidth, 17), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, FormatReset(window.ResetAt), UiTheme.UiFontFamily, 10f, FontStyle.Bold, palette.PrimaryText, new Rectangle(textLeft, bounds.Top + 106, textWidth, 23), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, FormatCountdown(window.ResetAt), UiTheme.CjkFontFamily, 8f, FontStyle.Regular, palette.SecondaryText, new Rectangle(textLeft, bounds.Top + 131, textWidth, 18), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, insight == null ? "等待历史趋势" : insight.GetRateText(), UiTheme.UiFontFamily, 7.5f, FontStyle.Bold, GetInsightColor(insight), new Rectangle(textLeft, bounds.Top + 148, textWidth, 18), StringAlignment.Near, StringAlignment.Center);
         if (insight != null && insight.ProjectedExhaustionAt.HasValue)
         {
-            DrawText(g, "预计 " + FormatForecast(insight.ProjectedExhaustionAt), "Microsoft YaHei UI", 7.5f, FontStyle.Regular, palette.SecondaryText, textLeft, bounds.Top + 176);
+            DrawAlignedText(g, "预计 " + FormatForecast(insight.ProjectedExhaustionAt), UiTheme.CjkFontFamily, 7.5f, FontStyle.Regular, palette.SecondaryText, new Rectangle(textLeft, bounds.Top + 166, textWidth, 18), StringAlignment.Near, StringAlignment.Center);
         }
     }
 
@@ -769,24 +808,29 @@ internal sealed class UsageHubSurface : Control
         Rectangle bounds = new Rectangle(36, 322, Math.Max(520, Width - 72), 196);
         using (GraphicsPath cardPath = RoundedRectangle(bounds, 14))
         using (SolidBrush cardBrush = new SolidBrush(UiTheme.WithAlpha(palette.Surface, 238)))
-        using (Pen cardBorder = new Pen(UiTheme.WithAlpha(palette.ControlBorder, 205), 1f))
+        using (Pen cardBorder = new Pen(UiTheme.WithAlpha(palette.ControlBorder, GetRhythmAlpha(190, 18)), 1f))
         {
             g.FillPath(cardBrush, cardPath);
             g.DrawPath(cardBorder, cardPath);
         }
-        DrawText(g, "使用趋势", "Microsoft YaHei UI", 12f, FontStyle.Bold, palette.PrimaryText, bounds.Left + 18, bounds.Top + 16);
-        DrawText(g, "本机历史 · 仅保存脱敏百分比", "Microsoft YaHei UI", 8f, FontStyle.Regular, palette.SecondaryText, bounds.Left + 18, bounds.Top + 38);
+        DrawAlignedText(g, "使用趋势", UiTheme.CjkFontFamily, 12f, FontStyle.Bold, palette.PrimaryText, new Rectangle(bounds.Left + 18, bounds.Top + 10, 220, 24), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, "本机历史 · 仅保存脱敏百分比", UiTheme.CjkFontFamily, 8f, FontStyle.Regular, palette.SecondaryText, new Rectangle(bounds.Left + 18, bounds.Top + 34, 300, 18), StringAlignment.Near, StringAlignment.Center);
 
         Rectangle plot = new Rectangle(bounds.Left + 74, bounds.Top + 56, Math.Max(200, bounds.Width - 98), 112);
         using (Pen grid = new Pen(UiTheme.WithAlpha(palette.Grid, 155), 1f))
         using (SolidBrush labels = new SolidBrush(palette.SecondaryText))
-        using (Font labelFont = new Font("Consolas", 7f))
+        using (Font labelFont = new Font(UiTheme.UiFontFamily, 7f))
         {
             for (int step = 0; step <= 4; step++)
             {
                 float y = plot.Top + plot.Height * step / 4f;
                 g.DrawLine(grid, plot.Left, y, plot.Right, y);
-                g.DrawString((100 - step * 25).ToString(CultureInfo.InvariantCulture), labelFont, labels, bounds.Left + 34, y - 6);
+                using (StringFormat labelFormat = new StringFormat())
+                {
+                    labelFormat.Alignment = StringAlignment.Far;
+                    labelFormat.LineAlignment = StringAlignment.Center;
+                    g.DrawString((100 - step * 25).ToString(CultureInfo.InvariantCulture), labelFont, labels, new RectangleF(bounds.Left + 24, y - 9, 28, 18), labelFormat);
+                }
             }
             for (int step = 0; step <= 6; step++)
             {
@@ -802,13 +846,9 @@ internal sealed class UsageHubSurface : Control
         {
             hasSeries = DrawSeries(g, plot, windows[index], colors[index], index) || hasSeries;
         }
-        if (hasSeries && animationsEnabled)
-        {
-            DrawTrendCursor(g, plot);
-        }
         if (!hasSeries)
         {
-            DrawTextCentered(g, "成功刷新两次后，这里会绘制真实趋势", "Microsoft YaHei UI", 9f, FontStyle.Regular, palette.SecondaryText, plot.Left + plot.Width / 2, plot.Top + plot.Height / 2 - 6);
+            DrawAlignedText(g, "成功刷新两次后，这里会绘制真实趋势", UiTheme.CjkFontFamily, 9f, FontStyle.Regular, palette.SecondaryText, new Rectangle(plot.Left, plot.Top + plot.Height / 2 - 14, plot.Width, 28), StringAlignment.Center, StringAlignment.Center);
         }
 
         int legendX = bounds.Right - 224;
@@ -818,20 +858,8 @@ internal sealed class UsageHubSurface : Control
             {
                 g.FillEllipse(dot, legendX, bounds.Top + 20, 6, 6);
             }
-            DrawText(g, FormatWindowLabel(windows[index]), "Consolas", 7.5f, FontStyle.Bold, colors[index], legendX + 10, bounds.Top + 17);
+            DrawAlignedText(g, FormatWindowLabel(windows[index]), UiTheme.UiFontFamily, 7.5f, FontStyle.Bold, colors[index], new Rectangle(legendX + 10, bounds.Top + 14, 45, 18), StringAlignment.Near, StringAlignment.Center);
             legendX += 56;
-        }
-    }
-
-    private void DrawTrendCursor(Graphics g, Rectangle plot)
-    {
-        float progress = (float)((Math.Sin(phase * 0.55f) + 1d) / 2d);
-        float x = plot.Left + plot.Width * progress;
-        using (Pen cursor = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, 110), 1f))
-        using (SolidBrush marker = new SolidBrush(UiTheme.WithAlpha(palette.SecondaryAccent, 175)))
-        {
-            g.DrawLine(cursor, x, plot.Top, x, plot.Bottom);
-            g.FillEllipse(marker, x - 3, plot.Top - 3, 6, 6);
         }
     }
 
@@ -845,8 +873,8 @@ internal sealed class UsageHubSurface : Control
         string last = snapshot != null && snapshot.LastLiveAt.HasValue
             ? "本机趋势 · 最近成功 " + snapshot.LastLiveAt.Value.ToLocalTime().ToString("MM/dd HH:mm", CultureInfo.InvariantCulture)
             : "尚未成功刷新";
-        DrawText(g, last, "Consolas", 8f, FontStyle.Regular, palette.SecondaryText, 36, y + 11);
-        DrawText(g, "v" + UpdateService.CurrentVersion, "Consolas", 8f, FontStyle.Bold, UiTheme.WithAlpha(palette.PrimaryAccent, 210), Width - 90, y + 17);
+        DrawAlignedText(g, last, UiTheme.CjkFontFamily, 8f, FontStyle.Regular, palette.SecondaryText, new Rectangle(36, y + 3, Width - 150, 24), StringAlignment.Near, StringAlignment.Center);
+        DrawAlignedText(g, "v" + UpdateService.CurrentVersion, UiTheme.UiFontFamily, 8f, FontStyle.Bold, UiTheme.WithAlpha(palette.PrimaryAccent, 210), new Rectangle(Width - 110, y + 3, 74, 24), StringAlignment.Far, StringAlignment.Center);
     }
 
     private bool DrawSeries(Graphics g, Rectangle plot, int seconds, Color color, int seriesIndex)
@@ -1195,22 +1223,37 @@ internal sealed class UsageHubSurface : Control
         return Math.Max(55, Math.Min(255, 80 + (int)Math.Round(175d * Math.Min(1f, entrance))));
     }
 
-    private static void DrawText(Graphics g, string text, string family, float size, FontStyle style, Color color, float x, float y)
+    private int GetRhythmAlpha(int baseAlpha, int amplitude)
     {
-        using (Font font = new Font(family, size, style, GraphicsUnit.Point))
-        using (SolidBrush brush = new SolidBrush(color))
+        if (!animationsEnabled)
         {
-            g.DrawString(text ?? string.Empty, font, brush, x, y);
+            return baseAlpha;
         }
+
+        double wave = (Math.Sin(phase * 0.72d) + 1d) / 2d;
+        return Math.Max(0, Math.Min(255, baseAlpha - amplitude / 2 + (int)Math.Round(wave * amplitude)));
     }
 
-    private static void DrawTextCentered(Graphics g, string text, string family, float size, FontStyle style, Color color, float centerX, float y)
+    private static void DrawAlignedText(
+        Graphics g,
+        string text,
+        string family,
+        float size,
+        FontStyle style,
+        Color color,
+        Rectangle bounds,
+        StringAlignment horizontal,
+        StringAlignment vertical)
     {
         using (Font font = new Font(family, size, style, GraphicsUnit.Point))
         using (SolidBrush brush = new SolidBrush(color))
+        using (StringFormat format = new StringFormat())
         {
-            SizeF measured = g.MeasureString(text ?? string.Empty, font);
-            g.DrawString(text ?? string.Empty, font, brush, centerX - measured.Width / 2f, y);
+            format.Alignment = horizontal;
+            format.LineAlignment = vertical;
+            format.FormatFlags = StringFormatFlags.NoWrap;
+            format.Trimming = StringTrimming.EllipsisCharacter;
+            g.DrawString(text ?? string.Empty, font, brush, bounds, format);
         }
     }
 

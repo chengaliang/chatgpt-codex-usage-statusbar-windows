@@ -73,7 +73,7 @@ internal sealed class UsageDetailsForm : Form
 
         titleLabel = new Label();
         titleLabel.AutoSize = true;
-        titleLabel.Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold);
+        titleLabel.Font = new Font(UiTheme.CjkFontFamily, 13f, FontStyle.Bold);
         titleLabel.Text = "ChatGPT / Codex";
         titleLabel.ForeColor = palette.PrimaryText;
         titleLabel.Anchor = AnchorStyles.Left;
@@ -82,7 +82,7 @@ internal sealed class UsageDetailsForm : Form
         statusLabel.AutoSize = true;
         statusLabel.TextAlign = ContentAlignment.MiddleRight;
         statusLabel.Dock = DockStyle.Fill;
-        statusLabel.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+        statusLabel.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Bold);
 
         layout.Controls.Add(titleLabel, 0, 0);
         layout.Controls.Add(statusLabel, 1, 0);
@@ -256,6 +256,7 @@ internal sealed class UsageDetailsForm : Form
         label.AutoSize = false;
         label.Dock = DockStyle.Fill;
         label.TextAlign = ContentAlignment.MiddleLeft;
+        label.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Regular);
         label.ForeColor = color;
         return label;
     }
@@ -269,23 +270,36 @@ internal sealed class UsageDetailsForm : Form
 
         Label name = new Label();
         name.Text = window.DisplayName;
-        name.AutoSize = true;
-        name.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+        name.AutoSize = false;
+        name.Width = 220;
+        name.Height = 20;
+        name.TextAlign = ContentAlignment.MiddleLeft;
+        name.Font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Bold);
         name.ForeColor = palette.PrimaryText;
         name.Location = new Point(10, 5);
+        name.AutoEllipsis = true;
 
         Label percent = new Label();
         percent.Text = window.UsedPercent.ToString("0.#", CultureInfo.InvariantCulture) + "% 已使用";
-        percent.AutoSize = true;
+        percent.AutoSize = false;
+        percent.Width = 220;
+        percent.Height = 16;
+        percent.TextAlign = ContentAlignment.MiddleLeft;
+        percent.Font = new Font(UiTheme.UiFontFamily, 9f, FontStyle.Regular);
         percent.ForeColor = palette.PrimaryText;
         percent.Location = new Point(10, 25);
+        percent.AutoEllipsis = true;
 
         Label reset = new Label();
         reset.Text = "重置 " + FormatReset(window.ResetAt);
-        reset.AutoSize = true;
+        reset.AutoSize = false;
+        reset.Width = 170;
+        reset.Height = 24;
+        reset.TextAlign = ContentAlignment.MiddleRight;
+        reset.Font = new Font(UiTheme.UiFontFamily, 8.5f, FontStyle.Regular);
         reset.ForeColor = palette.SecondaryText;
-        reset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        reset.Location = new Point(290, 14);
+        reset.Dock = DockStyle.Right;
+        reset.Padding = new Padding(0, 0, 2, 0);
 
         panel.Controls.Add(name);
         panel.Controls.Add(percent);
@@ -393,7 +407,7 @@ internal sealed class UsageHistoryGraph : Control
         Rectangle plot = new Rectangle(34, 12, Math.Max(10, Width - 50), Math.Max(10, Height - 28));
         using (Pen border = new Pen(palette.ControlBorder))
         using (Pen grid = new Pen(palette.Grid))
-        using (Font font = new Font("Consolas", 7f))
+        using (Font font = new Font(UiTheme.UiFontFamily, 7f))
         using (SolidBrush labelBrush = new SolidBrush(ForeColor))
         {
             g.DrawRectangle(border, plot);
@@ -408,7 +422,7 @@ internal sealed class UsageHistoryGraph : Control
 
         if (points == null || points.Count == 0)
         {
-            using (Font emptyFont = new Font("Microsoft YaHei UI", 8.5f))
+            using (Font emptyFont = new Font(UiTheme.CjkFontFamily, 8.5f))
             using (SolidBrush emptyBrush = new SolidBrush(palette.SecondaryText))
             {
                 g.DrawString("至少两次成功刷新后，这里会显示本地趋势", emptyFont, emptyBrush, plot.Left + 12, plot.Top + plot.Height / 2 - 8);
@@ -431,7 +445,7 @@ internal sealed class UsageHistoryGraph : Control
         }
         if (!hasTrend)
         {
-            using (Font emptyFont = new Font("Microsoft YaHei UI", 8.5f))
+            using (Font emptyFont = new Font(UiTheme.CjkFontFamily, 8.5f))
             using (SolidBrush emptyBrush = new SolidBrush(palette.SecondaryText))
             {
                 g.DrawString("正在收集数据（至少两次成功刷新后显示趋势）", emptyFont, emptyBrush, plot.Left + 12, plot.Top + plot.Height / 2 - 8);
@@ -537,7 +551,7 @@ internal sealed class UsageHistoryGraph : Control
         }
         using (Pen pen = new Pen(color, 2f))
         using (SolidBrush brush = new SolidBrush(color))
-        using (Font legendFont = new Font("Consolas", 7f, FontStyle.Bold))
+        using (Font legendFont = new Font(UiTheme.UiFontFamily, 7f, FontStyle.Bold))
         {
             if (line.Length > 1)
             {

@@ -7,6 +7,10 @@ using System.Windows.Forms;
 /// </summary>
 internal static class UiTheme
 {
+    // 统一使用 Segoe UI 承载数字和拉丁字符，中文交给微软雅黑 UI，避免等宽字体造成字距和基线跳动。
+    public const string UiFontFamily = "Segoe UI";
+    public const string CjkFontFamily = "Microsoft YaHei UI";
+
     public static void StyleButton(Button button, ThemePalette palette, bool primary)
     {
         if (button == null || palette == null)
@@ -25,7 +29,7 @@ internal static class UiTheme
             : Blend(palette.ButtonHover, Color.Black, 0.08f);
         button.BackColor = primary ? palette.PrimaryAccent : palette.ControlBackground;
         button.ForeColor = primary ? GetOnAccentColor(palette.PrimaryAccent) : palette.PrimaryText;
-        button.Font = new Font("Microsoft YaHei UI", 9f, primary ? FontStyle.Bold : FontStyle.Regular);
+        button.Font = new Font(CjkFontFamily, 9f, primary ? FontStyle.Bold : FontStyle.Regular);
         button.Cursor = Cursors.Hand;
         button.UseVisualStyleBackColor = false;
         button.MinimumSize = new Size(Math.Max(40, button.Width), Math.Max(34, button.Height));
@@ -42,7 +46,7 @@ internal static class UiTheme
         menu.Renderer = new UsageMenuRenderer(palette);
         menu.BackColor = palette.Surface;
         menu.ForeColor = palette.PrimaryText;
-        menu.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+        menu.Font = new Font(CjkFontFamily, 9f, FontStyle.Regular);
         menu.Padding = new Padding(6, 7, 6, 7);
         foreach (ToolStripItem item in menu.Items)
         {
