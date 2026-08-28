@@ -844,11 +844,15 @@ internal sealed class StatusWindow : Form
             intervalMenu.DropDownItems.Add(intervalItem);
         }
 
-        ToolStripMenuItem styleMenu = new ToolStripMenuItem("背景样式");
-        AddBackgroundStyleItem(styleMenu, BackgroundStyle.Opaque, "实色");
-        AddBackgroundStyleItem(styleMenu, BackgroundStyle.SemiTransparent, "半透明");
-        AddBackgroundStyleItem(styleMenu, BackgroundStyle.HighTransparency, "高透明");
-        AddBackgroundStyleItem(styleMenu, BackgroundStyle.UltraTransparency, "极高透明");
+        ToolStripMenuItem styleMenu = new ToolStripMenuItem("背景透明度");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.Opaque, "100% 不透明");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.SemiTransparent, "85% 不透明");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.HighTransparency, "65% 不透明");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.UltraTransparency, "35% 不透明");
+        styleMenu.DropDownItems.Add(new ToolStripSeparator());
+        ToolStripMenuItem opacitySettingsItem = new ToolStripMenuItem("打开滑块设置");
+        opacitySettingsItem.Click += delegate(object sender, EventArgs args) { ShowSettings(); };
+        styleMenu.DropDownItems.Add(opacitySettingsItem);
 
         clickThroughMenuItem = new ToolStripMenuItem("忽略鼠标操作（点击穿透）");
         clickThroughMenuItem.CheckOnClick = true;
@@ -1222,10 +1226,13 @@ internal sealed class StatusWindow : Form
 
     private void ShowSettings()
     {
-        using (SettingsForm form = new SettingsForm(settings))
+        AppSettings original = settings.Clone();
+        using (SettingsForm form = new SettingsForm(settings, PreviewOpacity))
         {
             if (form.ShowDialog(this) != DialogResult.OK || form.Result == null)
             {
+                // 预览只改窗口外观；取消、关闭窗口或按 Esc 时恢复打开设置前的真实值。
+                ApplyBackgroundStyle();
                 return;
             }
 
@@ -1233,6 +1240,10 @@ internal sealed class StatusWindow : Form
             string startupError;
             if (!startupManager.TrySetEnabled(selected.AutoStartEnabled, out startupError))
             {
+                settings.OpacityPercent = original.OpacityPercent;
+                settings.BackgroundStyle = original.BackgroundStyle;
+                settings.Normalize();
+                ApplyBackgroundStyle();
                 MessageBox.Show(this, startupError, "开机启动", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -1268,6 +1279,7 @@ internal sealed class StatusWindow : Form
         settings.LaunchDelaySeconds = source.LaunchDelaySeconds;
         settings.AutoCheckUpdates = source.AutoCheckUpdates;
         settings.BackgroundStyle = source.BackgroundStyle;
+        settings.OpacityPercent = source.OpacityPercent;
         settings.ClickThroughEnabled = source.ClickThroughEnabled;
         settings.Theme = source.Theme;
         settings.NotificationsEnabled = source.NotificationsEnabled;
@@ -1288,7 +1300,7 @@ internal sealed class StatusWindow : Form
     {
         ToolStripMenuItem item = new ToolStripMenuItem(text);
         item.Tag = style;
-        item.Checked = settings.BackgroundStyle == style;
+        item.Checked = settings.OpacityPercent == AppSettings.GetOpacityForStyle(style);
         item.Click += delegate(object sender, EventArgs args)
         {
             ToolStripMenuItem selected = sender as ToolStripMenuItem;
@@ -1318,6 +1330,7 @@ internal sealed class StatusWindow : Form
     private void ApplyBackgroundStyle(BackgroundStyle style)
     {
         settings.BackgroundStyle = style;
+        settings.OpacityPercent = AppSettings.GetOpacityForStyle(style);
         settings.Normalize();
         ApplyBackgroundStyle();
         UpdateBackgroundStyleChecks();
@@ -1327,21 +1340,23 @@ internal sealed class StatusWindow : Form
 
     private void ApplyBackgroundStyle()
     {
-        switch (settings.BackgroundStyle)
+        settings.Normalize();
+        Opacity = settings.OpacityPercent / 100d;
+        ApplyClickThroughMode();
+    }
+
+    /// <summary>
+    /// 在设置窗口拖动滑块时只更新当前窗口的视觉预览，不写入设置文件；保存或取消由 ShowSettings 统一处理。
+    /// </summary>
+    private void PreviewOpacity(int opacityPercent)
+    {
+        if (!AppSettings.IsSupportedOpacityPercent(opacityPercent))
         {
-            case BackgroundStyle.SemiTransparent:
-                Opacity = 0.85d;
-                break;
-            case BackgroundStyle.HighTransparency:
-                Opacity = 0.65d;
-                break;
-            case BackgroundStyle.UltraTransparency:
-                Opacity = 0.35d;
-                break;
-            default:
-                Opacity = 1.0d;
-                break;
+            return;
         }
+
+        Opacity = opacityPercent / 100d;
+        Invalidate();
     }
 
     /// <summary>
@@ -1383,7 +1398,7 @@ internal sealed class StatusWindow : Form
         else
         {
             extendedStyle &= ~(long)(WsExTransparent | WsExNoActivate);
-            if (settings.BackgroundStyle == BackgroundStyle.Opaque)
+            if (settings.OpacityPercent >= AppSettings.MaximumOpacityPercent)
             {
                 // 不透明的普通交互模式不需要继续占用分层窗口路径；半透明模式则必须保留它。
                 extendedStyle &= ~(long)WsExLayered;
@@ -1420,7 +1435,7 @@ internal sealed class StatusWindow : Form
     {
         foreach (ToolStripMenuItem item in backgroundStyleItems)
         {
-            item.Checked = (BackgroundStyle)item.Tag == settings.BackgroundStyle;
+            item.Checked = settings.OpacityPercent == AppSettings.GetOpacityForStyle((BackgroundStyle)item.Tag);
         }
     }
 

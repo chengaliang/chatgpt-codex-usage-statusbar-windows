@@ -9,12 +9,19 @@ $assembly = [Reflection.Assembly]::LoadFrom($exePath)
 
 $settingsType = $assembly.GetType('AppSettings')
 if ($null -eq $settingsType) { throw 'AppSettings type is missing' }
+$backgroundType = $assembly.GetType('BackgroundStyle')
+if ($null -eq $backgroundType) { throw 'BackgroundStyle type is missing' }
 $settings = [Activator]::CreateInstance($settingsType)
 $settings.RefreshIntervalMinutes = 2
 $settings.NotificationThresholdPercent = 150
 $settings.Normalize()
 if ($settings.RefreshIntervalMinutes -ne 5) { throw 'invalid refresh interval was not normalized' }
 if ($settings.NotificationThresholdPercent -ne 80) { throw 'invalid threshold was not normalized' }
+if ($settings.OpacityPercent -ne 100) { throw 'default opacity should be 100%' }
+$settings.OpacityPercent = 72
+$settings.BackgroundStyle = [Enum]::ToObject($backgroundType, 4)
+$settings.Normalize()
+if ($settings.OpacityPercent -ne 72 -or $settings.BackgroundStyle.ToString() -ne 'Custom') { throw 'custom opacity was not normalized' }
 foreach ($name in @('GlobalHotkeyEnabled', 'ResetNotificationsEnabled', 'ForecastNotificationsEnabled', 'ClickThroughEnabled')) {
     if ($null -eq $settingsType.GetProperty($name)) { throw "AppSettings property missing: $name" }
 }
@@ -48,6 +55,8 @@ try {
     $settings.ResetNotificationsEnabled = $true
     $settings.ForecastNotificationsEnabled = $true
     $settings.ClickThroughEnabled = $true
+    $settings.OpacityPercent = 72
+    $settings.BackgroundStyle = [Enum]::ToObject($backgroundType, 4)
     $store.Save($settings)
     $savedJson = [IO.File]::ReadAllText($settingsPath)
     if ($savedJson -match 'access_token|refresh_token|id_token|account_id') { throw 'settings file contains credential fields' }
@@ -59,6 +68,11 @@ try {
     if (-not $loaded.ResetNotificationsEnabled) { throw 'saved reset notification setting was not loaded' }
     if (-not $loaded.ForecastNotificationsEnabled) { throw 'saved forecast notification setting was not loaded' }
     if (-not $loaded.ClickThroughEnabled) { throw 'saved click-through setting was not loaded' }
+    if ($loaded.OpacityPercent -ne 72 -or $loaded.BackgroundStyle.ToString() -ne 'Custom') { throw 'saved opacity setting was not loaded' }
+
+    [IO.File]::WriteAllText($settingsPath, '{"BackgroundStyle":2}', [Text.Encoding]::UTF8)
+    $legacyLoaded = $store.Load()
+    if ($legacyLoaded.OpacityPercent -ne 65 -or $legacyLoaded.BackgroundStyle.ToString() -ne 'HighTransparency') { throw 'legacy background style was not migrated to opacity' }
 
     [IO.File]::WriteAllText($settingsPath, '{ invalid json', [Text.Encoding]::UTF8)
     $fallback = $store.Load()

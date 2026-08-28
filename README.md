@@ -4,7 +4,7 @@
 
 ## 中文概览
 
-这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、固定位置的状态律动和额度风险色反馈；每次成功在线刷新后还会播放一次短促的同心脉冲，让数据换新有明确反馈，并可按本地历史估算消耗速度与预计耗尽时间。状态栏支持三档透明度和“忽略鼠标操作（点击穿透）”展示模式，开启后点击会直接交给背后窗口处理；主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
+这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、固定位置的状态律动和额度风险色反馈；每次成功在线刷新后还会播放一次短促的同心脉冲，让数据换新有明确反馈，并可按本地历史估算消耗速度与预计耗尽时间。状态栏支持 35%–100% 不透明度滑块，拖动设置时即时预览，也保留右键快捷档位；“忽略鼠标操作（点击穿透）”展示模式开启后点击会直接交给背后窗口处理。主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
@@ -35,6 +35,7 @@
 - **Privacy-first**: reuses the local Codex OAuth session in memory, never asks for API keys, and never uploads or logs credentials.
 - **Useful at a glance**: shows 5-hour and 7-day usage, progress bars, local reset date/time, and a compact status indicator without opening a dashboard.
 - **Tiny native footprint**: one WinForms executable with a 370×56 overlay and an on-demand Usage Hub workspace, with no runtime installer or background service.
+- **Live opacity preview**: tune the overlay from 35% to 100% opacity with a continuous slider; the bar updates while dragging and restores the previous value when settings are cancelled.
 - **Network-flexible**: works with Windows system proxy settings or direct connection, with an explicit HTTP/HTTPS proxy option when needed.
 - **Easy to verify**: source code, an in-box .NET compiler command, and a Windows Actions build are included in the repository.
 

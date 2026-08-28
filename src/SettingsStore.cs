@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Web.Script.Serialization;
@@ -45,6 +46,13 @@ internal sealed class SettingsStore
             {
                 BackupBrokenFile();
                 return defaults;
+            }
+
+            // 旧版本没有 OpacityPercent 字段；先根据原有背景档位迁移，再执行统一规范化，避免升级后突然恢复为实色。
+            IDictionary<string, object> rawValues = serializer.DeserializeObject(json) as IDictionary<string, object>;
+            if (rawValues == null || !rawValues.ContainsKey("OpacityPercent"))
+            {
+                settings.OpacityPercent = AppSettings.GetOpacityForStyle(settings.BackgroundStyle);
             }
 
             settings.Normalize();

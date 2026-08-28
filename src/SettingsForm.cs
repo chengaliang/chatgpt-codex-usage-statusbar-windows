@@ -8,9 +8,11 @@ using System.Windows.Forms;
 internal sealed class SettingsForm : Form
 {
     private readonly AppSettings draft;
+    private readonly Action<int> opacityPreview;
     private readonly ComboBox refreshCombo;
     private readonly ComboBox historyRetentionCombo;
-    private readonly ComboBox backgroundCombo;
+    private readonly TrackBar opacityTrackBar;
+    private readonly Label opacityValueLabel;
     private readonly CheckBox clickThroughCheck;
     private readonly ComboBox themeCombo;
     private readonly CheckBox autoStartCheck;
@@ -34,9 +36,18 @@ internal sealed class SettingsForm : Form
     public AppSettings Result { get; private set; }
 
     public SettingsForm(AppSettings settings)
+        : this(settings, null)
+    {
+    }
+
+    /// <summary>
+    /// 构造设置窗口。可选的透明度回调只用于预览当前窗口外观，不会在点击保存前改写设置模型。
+    /// </summary>
+    public SettingsForm(AppSettings settings, Action<int> opacityPreview)
     {
         draft = settings == null ? AppSettings.CreateDefault() : settings.Clone();
         draft.Normalize();
+        this.opacityPreview = opacityPreview;
         palette = ThemePalette.Create(draft.Theme);
 
         Text = "状态栏设置";
@@ -107,12 +118,37 @@ internal sealed class SettingsForm : Form
             draft.HistoryRetentionDays,
             1);
 
-        backgroundCombo = CreateCombo();
-        backgroundCombo.Items.Add("实色");
-        backgroundCombo.Items.Add("半透明（85%）");
-        backgroundCombo.Items.Add("高透明（65%）");
-        backgroundCombo.Items.Add("极高透明（35%不透明度）");
-        backgroundCombo.SelectedIndex = (int)draft.BackgroundStyle;
+        Panel opacityPanel = new Panel();
+        opacityPanel.Dock = DockStyle.Fill;
+        opacityPanel.Height = 32;
+        opacityPanel.BackColor = Color.Transparent;
+
+        opacityTrackBar = new TrackBar();
+        opacityTrackBar.Minimum = AppSettings.MinimumOpacityPercent;
+        opacityTrackBar.Maximum = AppSettings.MaximumOpacityPercent;
+        opacityTrackBar.TickFrequency = 5;
+        opacityTrackBar.LargeChange = 5;
+        opacityTrackBar.SmallChange = 1;
+        opacityTrackBar.Value = Math.Max(
+            AppSettings.MinimumOpacityPercent,
+            Math.Min(AppSettings.MaximumOpacityPercent, draft.OpacityPercent));
+        opacityTrackBar.AutoSize = false;
+        opacityTrackBar.Height = 32;
+        opacityTrackBar.Dock = DockStyle.Fill;
+        opacityTrackBar.AccessibleName = "背景不透明度滑块";
+        opacityTrackBar.ValueChanged += OnOpacityTrackBarValueChanged;
+
+        opacityValueLabel = new Label();
+        opacityValueLabel.AutoSize = false;
+        opacityValueLabel.Width = 92;
+        opacityValueLabel.Dock = DockStyle.Right;
+        opacityValueLabel.TextAlign = ContentAlignment.MiddleRight;
+        opacityValueLabel.Font = new Font(UiTheme.UiFontFamily, 9f, FontStyle.Bold);
+        opacityValueLabel.ForeColor = palette.PrimaryText;
+        opacityValueLabel.BackColor = Color.Transparent;
+        UpdateOpacityValueLabel();
+        opacityPanel.Controls.Add(opacityTrackBar);
+        opacityPanel.Controls.Add(opacityValueLabel);
 
         clickThroughCheck = new CheckBox();
         clickThroughCheck.Text = "忽略鼠标操作（点击穿透）";
@@ -192,7 +228,7 @@ internal sealed class SettingsForm : Form
         AddRow(layout, 1, "自动刷新", refreshCombo);
         AddRow(layout, 2, "历史保留", historyRetentionCombo);
         AddRow(layout, 3, "主题", themeCombo);
-        AddRow(layout, 4, "背景样式", backgroundCombo);
+        AddRow(layout, 4, "背景透明度", opacityPanel);
         AddRow(layout, 5, "鼠标交互", clickThroughCheck);
         AddRow(layout, 6, "开机启动", autoStartCheck);
         AddRow(layout, 7, "启动延迟", launchDelayCombo);
@@ -333,6 +369,11 @@ internal sealed class SettingsForm : Form
                 child.Font = new Font(UiTheme.UiFontFamily, 9f, FontStyle.Regular);
                 ((NumericUpDown)child).BorderStyle = BorderStyle.FixedSingle;
             }
+            else if (child is TrackBar)
+            {
+                child.ForeColor = palette.PrimaryText;
+                child.BackColor = palette.BackgroundTop;
+            }
             else if (child is Button)
             {
                 UiTheme.StyleButton((Button)child, palette, ((Button)child).Text == "保存");
@@ -387,6 +428,26 @@ internal sealed class SettingsForm : Form
         thresholdInput.Enabled = notificationsCheck.Checked;
     }
 
+    /// <summary>
+    /// 更新滑块右侧的数值标签，并把拖动中的值交给状态栏宿主即时预览。
+    /// </summary>
+    private void OnOpacityTrackBarValueChanged(object sender, EventArgs e)
+    {
+        UpdateOpacityValueLabel();
+        if (opacityPreview != null)
+        {
+            opacityPreview(opacityTrackBar.Value);
+        }
+    }
+
+    private void UpdateOpacityValueLabel()
+    {
+        if (opacityValueLabel != null && opacityTrackBar != null)
+        {
+            opacityValueLabel.Text = opacityTrackBar.Value + "% 不透明";
+        }
+    }
+
     private void OnSave(object sender, EventArgs e)
     {
         int[] intervals = AppSettings.GetSupportedRefreshIntervals();
@@ -413,7 +474,8 @@ internal sealed class SettingsForm : Form
         }
         draft.LaunchDelaySeconds = delayValues[delayIndex];
         draft.Theme = (ThemeMode)Math.Max(0, themeCombo.SelectedIndex);
-        draft.BackgroundStyle = (BackgroundStyle)Math.Max(0, backgroundCombo.SelectedIndex);
+        draft.OpacityPercent = opacityTrackBar.Value;
+        draft.BackgroundStyle = AppSettings.GetBackgroundStyleForOpacity(draft.OpacityPercent);
         draft.ClickThroughEnabled = clickThroughCheck.Checked;
         draft.AutoStartEnabled = autoStartCheck.Checked;
         draft.AutoCheckUpdates = autoCheckUpdatesCheck.Checked;

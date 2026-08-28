@@ -274,6 +274,20 @@ $hub.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))
 if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 690 -or $settingsForm.MinimumSize.Height -lt 690) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
+$opacityField = $settingsFormType.GetField('opacityTrackBar', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $opacityField) { throw 'SettingsForm opacity slider is missing' }
+$opacitySlider = $opacityField.GetValue($settingsForm)
+if ($opacitySlider.Minimum -ne 35 -or $opacitySlider.Maximum -ne 100 -or $opacitySlider.Value -ne $settingsProbe.OpacityPercent) { throw 'SettingsForm opacity slider range or initial value is invalid' }
+if ([string]::IsNullOrWhiteSpace($opacitySlider.AccessibleName)) { throw 'SettingsForm opacity slider is missing an accessible name' }
+$opacityLabelField = $settingsFormType.GetField('opacityValueLabel', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $opacityLabelField -or $opacityLabelField.GetValue($settingsForm).Text -notmatch '%') { throw 'SettingsForm opacity value label is missing' }
+$previewValue = -1
+$previewCallback = [Action[int]]{ param($value) $script:previewValue = [int]$value }
+$previewForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe, $previewCallback))
+$previewSlider = $opacityField.GetValue($previewForm)
+$previewSlider.Value = 72
+if ($script:previewValue -ne 72) { throw 'SettingsForm opacity preview callback did not receive slider changes' }
+$previewForm.Dispose()
 $animationsField = $settingsFormType.GetField('animationsCheck', [Reflection.BindingFlags]'NonPublic,Instance')
 if ($null -eq $animationsField -or -not $animationsField.GetValue($settingsForm).Checked) { throw 'SettingsForm animations option is missing or not enabled by default' }
 $clickThroughField = $settingsFormType.GetField('clickThroughCheck', [Reflection.BindingFlags]'NonPublic,Instance')
@@ -282,7 +296,7 @@ $controlQueue = New-Object 'System.Collections.Generic.Queue[System.Windows.Form
 $controlQueue.Enqueue($settingsForm)
 while ($controlQueue.Count -gt 0) {
     $control = $controlQueue.Dequeue()
-    if (($control -is [System.Windows.Forms.ComboBox] -or $control -is [System.Windows.Forms.NumericUpDown] -or $control -is [System.Windows.Forms.CheckBox]) -and [string]::IsNullOrWhiteSpace($control.AccessibleName)) {
+    if (($control -is [System.Windows.Forms.ComboBox] -or $control -is [System.Windows.Forms.NumericUpDown] -or $control -is [System.Windows.Forms.CheckBox] -or $control -is [System.Windows.Forms.TrackBar]) -and [string]::IsNullOrWhiteSpace($control.AccessibleName)) {
         throw 'SettingsForm interactive control is missing an accessible name'
     }
     foreach ($child in $control.Controls) { $controlQueue.Enqueue($child) }

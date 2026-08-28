@@ -1,14 +1,15 @@
 using System;
 
 /// <summary>
-/// 状态栏背景档位。使用有限枚举而不是任意透明度，保证文字和点击区域仍然可用。
+/// 状态栏背景档位。保留预设值用于兼容旧版本和右键菜单，精确透明度由 AppSettings.OpacityPercent 承载。
 /// </summary>
 internal enum BackgroundStyle
 {
     Opaque = 0,
     SemiTransparent = 1,
     HighTransparency = 2,
-    UltraTransparency = 3
+    UltraTransparency = 3,
+    Custom = 4
 }
 
 /// <summary>
@@ -27,6 +28,8 @@ internal enum ThemeMode
 /// </summary>
 internal sealed class AppSettings
 {
+    public const int MinimumOpacityPercent = 35;
+    public const int MaximumOpacityPercent = 100;
     private static readonly int[] SupportedRefreshIntervals = { 1, 5, 10, 15, 30, 60 };
     private static readonly int[] SupportedHistoryRetentionDays = { 7, 30, 90 };
     private static readonly int[] SupportedLaunchDelaySeconds = { 0, 5, 15, 30 };
@@ -37,6 +40,10 @@ internal sealed class AppSettings
     public int LaunchDelaySeconds { get; set; }
     public bool AutoCheckUpdates { get; set; }
     public BackgroundStyle BackgroundStyle { get; set; }
+    /// <summary>
+    /// 状态栏背景的不透明度百分比，范围 35-100；数值越低，窗口越透明。
+    /// </summary>
+    public int OpacityPercent { get; set; }
     public bool ClickThroughEnabled { get; set; }
     public ThemeMode Theme { get; set; }
     public bool NotificationsEnabled { get; set; }
@@ -58,6 +65,7 @@ internal sealed class AppSettings
         LaunchDelaySeconds = 0;
         AutoCheckUpdates = false;
         BackgroundStyle = BackgroundStyle.Opaque;
+        OpacityPercent = MaximumOpacityPercent;
         ClickThroughEnabled = false;
         Theme = ThemeMode.System;
         NotificationsEnabled = false;
@@ -102,6 +110,18 @@ internal sealed class AppSettings
             BackgroundStyle = BackgroundStyle.Opaque;
         }
 
+        if (!IsSupportedOpacityPercent(OpacityPercent))
+        {
+            OpacityPercent = GetOpacityForStyle(BackgroundStyle);
+        }
+
+        // 滑杆可以落在预设之间；此时使用 Custom 标记，右键预设不会误显示为已选中。
+        // Custom 也要按实际百分比重新归类，避免“自定义 100%”在诊断中长期残留。
+        if (BackgroundStyle == BackgroundStyle.Custom || GetOpacityForStyle(BackgroundStyle) != OpacityPercent)
+        {
+            BackgroundStyle = GetBackgroundStyleForOpacity(OpacityPercent);
+        }
+
         if (!Enum.IsDefined(typeof(ThemeMode), Theme))
         {
             Theme = ThemeMode.System;
@@ -123,6 +143,7 @@ internal sealed class AppSettings
             LaunchDelaySeconds = LaunchDelaySeconds,
             AutoCheckUpdates = AutoCheckUpdates,
             BackgroundStyle = BackgroundStyle,
+            OpacityPercent = OpacityPercent,
             ClickThroughEnabled = ClickThroughEnabled,
             Theme = Theme,
             NotificationsEnabled = NotificationsEnabled,
@@ -187,5 +208,44 @@ internal sealed class AppSettings
     public static int[] GetSupportedLaunchDelaySeconds()
     {
         return (int[])SupportedLaunchDelaySeconds.Clone();
+    }
+
+    public static bool IsSupportedOpacityPercent(int value)
+    {
+        return value >= MinimumOpacityPercent && value <= MaximumOpacityPercent;
+    }
+
+    public static int GetOpacityForStyle(BackgroundStyle style)
+    {
+        switch (style)
+        {
+            case BackgroundStyle.SemiTransparent:
+                return 85;
+            case BackgroundStyle.HighTransparency:
+                return 65;
+            case BackgroundStyle.UltraTransparency:
+                return 35;
+            case BackgroundStyle.Custom:
+                return MaximumOpacityPercent;
+            default:
+                return MaximumOpacityPercent;
+        }
+    }
+
+    public static BackgroundStyle GetBackgroundStyleForOpacity(int opacityPercent)
+    {
+        switch (opacityPercent)
+        {
+            case 100:
+                return BackgroundStyle.Opaque;
+            case 85:
+                return BackgroundStyle.SemiTransparent;
+            case 65:
+                return BackgroundStyle.HighTransparency;
+            case 35:
+                return BackgroundStyle.UltraTransparency;
+            default:
+                return BackgroundStyle.Custom;
+        }
     }
 }
