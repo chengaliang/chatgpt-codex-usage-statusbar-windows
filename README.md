@@ -4,7 +4,7 @@
 
 ## 中文概览
 
-这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、状态呼吸、扫描线和额度风险色反馈；每次成功在线刷新后还会播放一次短促的同步脉冲，让数据换新有明确反馈，并可按本地历史估算消耗速度与预计耗尽时间。主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
+这是一个轻量的 Windows 桌面状态栏，用于查看 **ChatGPT / Codex CLI** 的官方动态额度。它复用本机 Codex CLI 的 ChatGPT OAuth 登录，通过系统网络连接访问 ChatGPT/Codex 后端，显示动态窗口的用量、进度和下一次重置时间；点击空白区域或展开按钮即可进入带环形额度卡、趋势图和操作中心的 Usage Hub 大屏。状态栏和大屏都提供可关闭的平滑过渡、状态呼吸、扫描线和额度风险色反馈；每次成功在线刷新后还会播放一次短促的同步脉冲，让数据换新有明确反馈，并可按本地历史估算消耗速度与预计耗尽时间。状态栏支持三档透明度和“忽略鼠标操作（点击穿透）”展示模式，开启后点击会直接交给背后窗口处理；主程序和兼容启动器均带有统一产品图标，重复双击会聚焦已有实例，启动失败会给出明确提示。
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
@@ -22,7 +22,7 @@
   <sub>Usage Hub：完整套餐名称、额度卡、本地趋势和诊断/导出/设置操作</sub>
 </div>
 
-首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供打开 Usage Hub、立即刷新、主题/透明度、诊断中心、复制脱敏诊断信息、导出本地趋势、打开数据目录、分别清除趋势历史或最近成功缓存，以及检查更新，遇到问题可以直接把诊断摘要贴到 Issue。`Ctrl+Alt+U` 可从任意应用唤起或聚焦 Usage Hub。
+首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供打开 Usage Hub、立即刷新、刷新周期、主题/透明度、忽略鼠标操作（点击穿透）、诊断中心、复制脱敏诊断信息、导出本地趋势、打开数据目录、分别清除趋势历史或最近成功缓存，以及检查更新，遇到问题可以直接把诊断摘要贴到 Issue。开启展示模式后，可从通知区域托盘菜单取消，不会把状态栏锁死。`Ctrl+Alt+U` 可从任意应用唤起或聚焦 Usage Hub。
 
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the mini UI compact at about 370×56 pixels with an on-demand Usage Hub workspace.
 
@@ -48,7 +48,8 @@
 - **Optional proxy**: uses the Windows system proxy or a direct connection by default; set `CLASH_MIXED_PROXY` when a local Clash Verge or other HTTP/HTTPS proxy is needed.
 - **Safe failure states**: expired OAuth, missing credentials, proxy errors and malformed responses become readable UI states instead of dumping response bodies.
 - **Tray-first workflow**: closing the bar hides it to the notification area instead of killing the process; double-click the tray icon to restore it, and use the tray menu to refresh, configure or exit.
-- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, 7/30/90-day local history, follow system/light/dark/graphite themes, opaque or two transparency levels, optional position restore, startup delay, opt-in threshold notifications and smooth visual feedback.
+- **Configurable and quiet**: choose 1/5/10/15/30/60-minute refresh cycles, 7/30/90-day local history, follow system/light/dark/graphite themes, opaque or three transparency levels, optional click-through display mode, position restore, startup delay, opt-in threshold notifications and smooth visual feedback.
+- **Click-through display mode**: make the mini bar a passive always-on display; mouse clicks pass to the window underneath, while the tray menu remains available to turn the mode off.
 - **Shortcuts and reminders**: use `Ctrl+Alt+U` to open the Hub, `Ctrl+C` to copy its safe diagnostic summary and `Ctrl+E` to export history; reset and two-hour forecast reminders are opt-in and de-duplicated per quota cycle.
 - **Local maintenance**: export only window seconds, percentages and timestamps to a CSV under the app data directory; the context menu can open that directory, and clearing local data removes matching exports too.
 - **Motion with purpose**: the mini bar uses a living status pulse and progress sweep; Usage Hub animates its entrance, rings, trend points and refresh state without changing the displayed percentage.
@@ -108,7 +109,7 @@ Start-Process -FilePath .\dist\SubscriptionStatus.exe -WorkingDirectory (Resolve
 | Export | In Usage Hub press `Ctrl+E`, or choose **导出本地趋势** from the menu |
 | Options | Right-click the bar or tray icon for settings and diagnostics |
 
-The default refresh cycle is five minutes. Change it, history retention (7/30/90 days), theme, background transparency, startup delay, optional startup update prompt, position restore, global shortcut, threshold notifications, reset reminders and forecast reminders from **设置**. Usage Hub keeps only local percentages and reset times for the selected retention period, and its **回到状态栏** action returns to the compact view. To export or inspect those data, use **导出本地趋势** or **打开数据目录**. The menu separates **清除趋势历史与导出** from **清除最近成功缓存**, so you can remove one without touching the other; neither action touches `auth.json`. To exit completely, choose **退出** from the bar or tray menu.
+The default refresh cycle is five minutes. Change it, history retention (7/30/90 days), theme, background transparency, click-through display mode, startup delay, optional startup update prompt, position restore, global shortcut, threshold notifications, reset reminders and forecast reminders from **设置**. Usage Hub keeps only local percentages and reset times for the selected retention period, and its **回到状态栏** action returns to the compact view. To export or inspect those data, use **导出本地趋势** or **打开数据目录**. The menu separates **清除趋势历史与导出** from **清除最近成功缓存**, so you can remove one without touching the other; neither action touches `auth.json`. To exit completely, choose **退出** from the bar or tray menu.
 
 ## Build From Source
 

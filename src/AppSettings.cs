@@ -7,7 +7,8 @@ internal enum BackgroundStyle
 {
     Opaque = 0,
     SemiTransparent = 1,
-    HighTransparency = 2
+    HighTransparency = 2,
+    UltraTransparency = 3
 }
 
 /// <summary>
@@ -36,6 +37,7 @@ internal sealed class AppSettings
     public int LaunchDelaySeconds { get; set; }
     public bool AutoCheckUpdates { get; set; }
     public BackgroundStyle BackgroundStyle { get; set; }
+    public bool ClickThroughEnabled { get; set; }
     public ThemeMode Theme { get; set; }
     public bool NotificationsEnabled { get; set; }
     public int NotificationThresholdPercent { get; set; }
@@ -56,6 +58,7 @@ internal sealed class AppSettings
         LaunchDelaySeconds = 0;
         AutoCheckUpdates = false;
         BackgroundStyle = BackgroundStyle.Opaque;
+        ClickThroughEnabled = false;
         Theme = ThemeMode.System;
         NotificationsEnabled = false;
         NotificationThresholdPercent = 80;
@@ -120,6 +123,7 @@ internal sealed class AppSettings
             LaunchDelaySeconds = LaunchDelaySeconds,
             AutoCheckUpdates = AutoCheckUpdates,
             BackgroundStyle = BackgroundStyle,
+            ClickThroughEnabled = ClickThroughEnabled,
             Theme = Theme,
             NotificationsEnabled = NotificationsEnabled,
             NotificationThresholdPercent = NotificationThresholdPercent,

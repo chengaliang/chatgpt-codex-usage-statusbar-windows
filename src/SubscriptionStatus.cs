@@ -651,6 +651,7 @@ internal sealed class StatusWindow : Form
     private readonly GlobalHotkey globalHotkey;
     private ThemePalette themePalette;
     private ToolStripMenuItem autoStartMenuItem;
+    private ToolStripMenuItem clickThroughMenuItem;
     private readonly IList<ToolStripMenuItem> refreshIntervalItems = new List<ToolStripMenuItem>();
     private readonly IList<ToolStripMenuItem> backgroundStyleItems = new List<ToolStripMenuItem>();
     private QuotaSnapshot snapshot;
@@ -688,13 +689,28 @@ internal sealed class StatusWindow : Form
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int width, int height, uint flags);
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SystemParametersInfo(uint action, uint parameter, out NativeRect rectangle, uint update);
 
     private const uint SpiGetWorkArea = 0x0030;
     private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFrameChanged = 0x0020;
+    private const int GwlExStyle = -20;
+    private const int WsExTransparent = 0x00000020;
+    private const int WsExNoActivate = 0x08000000;
+    private const int WmNcHitTest = 0x0084;
+    private const int WmMouseActivate = 0x0021;
+    private const int HtTransparent = -1;
+    private const int MaNoActivate = 3;
 
     public StatusWindow()
     {
@@ -787,8 +803,11 @@ internal sealed class StatusWindow : Form
             ShowSettings,
             RunDiagnostics,
             OpenProjectPage,
-            ExitApplication);
+            ExitApplication,
+            delegate { return settings.ClickThroughEnabled; },
+            ApplyClickThrough);
         trayController.ApplyTheme(themePalette);
+        trayController.SetClickThroughEnabled(settings.ClickThroughEnabled);
     }
 
     /// <summary>
@@ -828,6 +847,15 @@ internal sealed class StatusWindow : Form
         AddBackgroundStyleItem(styleMenu, BackgroundStyle.Opaque, "实色");
         AddBackgroundStyleItem(styleMenu, BackgroundStyle.SemiTransparent, "半透明");
         AddBackgroundStyleItem(styleMenu, BackgroundStyle.HighTransparency, "高透明");
+        AddBackgroundStyleItem(styleMenu, BackgroundStyle.UltraTransparency, "极高透明");
+
+        clickThroughMenuItem = new ToolStripMenuItem("忽略鼠标操作（点击穿透）");
+        clickThroughMenuItem.CheckOnClick = true;
+        clickThroughMenuItem.Checked = settings.ClickThroughEnabled;
+        clickThroughMenuItem.Click += delegate(object sender, EventArgs args)
+        {
+            ApplyClickThrough(clickThroughMenuItem.Checked);
+        };
 
         autoStartMenuItem = new ToolStripMenuItem("开机自启");
         autoStartMenuItem.CheckOnClick = true;
@@ -889,6 +917,7 @@ internal sealed class StatusWindow : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(intervalMenu);
         menu.Items.Add(styleMenu);
+        menu.Items.Add(clickThroughMenuItem);
         menu.Items.Add(autoStartMenuItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(settingsItem);
@@ -914,10 +943,34 @@ internal sealed class StatusWindow : Form
             const int WS_EX_TOOLWINDOW = 0x00000080;
             CreateParams parameters = base.CreateParams;
             parameters.ClassStyle |= CS_DROPSHADOW;
-            // 工具窗口不进入 Alt+Tab，同时保留状态栏的鼠标和右键交互。
+            // 工具窗口不进入 Alt+Tab；展示模式额外叠加点击穿透和不抢焦点样式。
             parameters.ExStyle |= WS_EX_TOOLWINDOW;
+            if (settings != null && settings.ClickThroughEnabled)
+            {
+                parameters.ExStyle |= WsExTransparent | WsExNoActivate;
+            }
             return parameters;
         }
+    }
+
+    protected override void WndProc(ref Message message)
+    {
+        if (settings != null && settings.ClickThroughEnabled)
+        {
+            if (message.Msg == WmNcHitTest)
+            {
+                // HTTRANSPARENT 让系统把状态栏区域的鼠标命中交给下方窗口处理。
+                message.Result = new IntPtr(HtTransparent);
+                return;
+            }
+            if (message.Msg == WmMouseActivate)
+            {
+                message.Result = new IntPtr(MaNoActivate);
+                return;
+            }
+        }
+
+        base.WndProc(ref message);
     }
 
     protected override async void OnShown(EventArgs e)
@@ -933,6 +986,7 @@ internal sealed class StatusWindow : Form
                 UpdateVisualTimerInterval();
             }
             ApplyGlobalHotkey();
+            ApplyClickThroughMode();
             toolTip.SetToolTip(this, BuildTooltipText());
             if (settings.LaunchDelaySeconds > 0)
             {
@@ -1185,6 +1239,9 @@ internal sealed class StatusWindow : Form
             autoStartEnabled = selected.AutoStartEnabled;
             autoStartError = string.Empty;
             UpdateVisualTargets(settings.AnimationsEnabled);
+            ApplyClickThroughMode();
+            clickThroughMenuItem.Checked = settings.ClickThroughEnabled;
+            trayController.SetClickThroughEnabled(settings.ClickThroughEnabled);
             autoStartMenuItem.Checked = autoStartEnabled;
             refreshScheduler.SetInterval(settings.RefreshIntervalMinutes);
             UpdateRefreshIntervalChecks();
@@ -1209,6 +1266,7 @@ internal sealed class StatusWindow : Form
         settings.LaunchDelaySeconds = source.LaunchDelaySeconds;
         settings.AutoCheckUpdates = source.AutoCheckUpdates;
         settings.BackgroundStyle = source.BackgroundStyle;
+        settings.ClickThroughEnabled = source.ClickThroughEnabled;
         settings.Theme = source.Theme;
         settings.NotificationsEnabled = source.NotificationsEnabled;
         settings.NotificationThresholdPercent = source.NotificationThresholdPercent;
@@ -1275,10 +1333,64 @@ internal sealed class StatusWindow : Form
             case BackgroundStyle.HighTransparency:
                 Opacity = 0.65d;
                 break;
+            case BackgroundStyle.UltraTransparency:
+                Opacity = 0.35d;
+                break;
             default:
                 Opacity = 1.0d;
                 break;
         }
+    }
+
+    /// <summary>
+    /// 切换状态栏展示模式。开启后窗口保留绘制和刷新，但鼠标命中会穿透到后方应用；
+    /// 关闭入口保留在状态栏右键菜单和托盘菜单，避免用户把自己锁在不可交互状态。
+    /// </summary>
+    private void ApplyClickThrough(bool enabled)
+    {
+        settings.ClickThroughEnabled = enabled;
+        settings.Normalize();
+        ApplyClickThroughMode();
+        if (clickThroughMenuItem != null)
+        {
+            clickThroughMenuItem.Checked = settings.ClickThroughEnabled;
+        }
+        if (trayController != null)
+        {
+            trayController.SetClickThroughEnabled(settings.ClickThroughEnabled);
+        }
+        SaveSettings();
+        toolTip.SetToolTip(this, BuildTooltipText());
+        trayController.SetStatus(BuildTrayStatus());
+        Invalidate();
+    }
+
+    private void ApplyClickThroughMode()
+    {
+        if (!IsHandleCreated)
+        {
+            return;
+        }
+
+        long extendedStyle = GetWindowLongPtr(Handle, GwlExStyle).ToInt64();
+        if (settings.ClickThroughEnabled)
+        {
+            extendedStyle |= WsExTransparent | WsExNoActivate;
+        }
+        else
+        {
+            extendedStyle &= ~(long)(WsExTransparent | WsExNoActivate);
+        }
+
+        SetWindowLongPtr(Handle, GwlExStyle, new IntPtr(extendedStyle));
+        SetWindowPos(
+            Handle,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
     private void ApplyTheme()
@@ -2394,6 +2506,10 @@ internal sealed class StatusWindow : Form
             text += "\r\n" + snapshot.ErrorText;
         }
         text += "\r\n点击展开 Usage Hub；右键：刷新周期、数据导出、背景样式、开机自启和诊断";
+        if (settings.ClickThroughEnabled)
+        {
+            text += "\r\n展示模式：鼠标点击已穿透，请从托盘菜单取消";
+        }
         if (settings.GlobalHotkeyEnabled)
         {
             text += globalHotkeyRegistrationFailed
@@ -2478,6 +2594,10 @@ internal sealed class StatusWindow : Form
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
+        if (settings.ClickThroughEnabled)
+        {
+            return;
+        }
         if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) && !refreshArea.Contains(e.Location) && !expandArea.Contains(e.Location))
         {
             mouseDownLocation = e.Location;
@@ -2490,6 +2610,10 @@ internal sealed class StatusWindow : Form
     protected override async void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
+        if (settings.ClickThroughEnabled)
+        {
+            return;
+        }
         if (e.Button != MouseButtons.Left)
         {
             return;
@@ -2522,6 +2646,10 @@ internal sealed class StatusWindow : Form
     protected override void OnMouseDoubleClick(MouseEventArgs e)
     {
         base.OnMouseDoubleClick(e);
+        if (settings.ClickThroughEnabled)
+        {
+            return;
+        }
         if (e.Button == MouseButtons.Left && !closeArea.Contains(e.Location) &&
             !refreshArea.Contains(e.Location) && !expandArea.Contains(e.Location))
         {
@@ -2532,6 +2660,11 @@ internal sealed class StatusWindow : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        if (settings.ClickThroughEnabled)
+        {
+            Cursor = Cursors.Default;
+            return;
+        }
         if (e.Button == MouseButtons.Left && !draggingBar &&
             (Math.Abs(e.Location.X - mouseDownLocation.X) > 6 || Math.Abs(e.Location.Y - mouseDownLocation.Y) > 6))
         {

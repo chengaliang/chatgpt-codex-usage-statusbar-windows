@@ -11,6 +11,7 @@ internal sealed class SettingsForm : Form
     private readonly ComboBox refreshCombo;
     private readonly ComboBox historyRetentionCombo;
     private readonly ComboBox backgroundCombo;
+    private readonly CheckBox clickThroughCheck;
     private readonly ComboBox themeCombo;
     private readonly CheckBox autoStartCheck;
     private readonly ComboBox launchDelayCombo;
@@ -40,7 +41,7 @@ internal sealed class SettingsForm : Form
 
         Text = "状态栏设置";
         ClientSize = new Size(520, 690);
-        MinimumSize = new Size(500, 650);
+        MinimumSize = new Size(500, 690);
         FormBorderStyle = FormBorderStyle.None;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -56,11 +57,11 @@ internal sealed class SettingsForm : Form
         layout.Dock = DockStyle.Fill;
         layout.Padding = new Padding(22, 18, 22, 16);
         layout.ColumnCount = 2;
-        layout.RowCount = 16;
+        layout.RowCount = 17;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 172f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
-        for (int row = 1; row <= 14; row++)
+        for (int row = 1; row <= 15; row++)
         {
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
         }
@@ -110,7 +111,14 @@ internal sealed class SettingsForm : Form
         backgroundCombo.Items.Add("实色");
         backgroundCombo.Items.Add("半透明（85%）");
         backgroundCombo.Items.Add("高透明（65%）");
+        backgroundCombo.Items.Add("极高透明（35%不透明度）");
         backgroundCombo.SelectedIndex = (int)draft.BackgroundStyle;
+
+        clickThroughCheck = new CheckBox();
+        clickThroughCheck.Text = "忽略鼠标操作（点击穿透）";
+        clickThroughCheck.AutoSize = true;
+        clickThroughCheck.Checked = draft.ClickThroughEnabled;
+        clickThroughCheck.AccessibleName = "忽略鼠标操作并让点击穿透";
 
         themeCombo = CreateCombo();
         themeCombo.Items.Add("跟随系统");
@@ -185,16 +193,17 @@ internal sealed class SettingsForm : Form
         AddRow(layout, 2, "历史保留", historyRetentionCombo);
         AddRow(layout, 3, "主题", themeCombo);
         AddRow(layout, 4, "背景样式", backgroundCombo);
-        AddRow(layout, 5, "开机启动", autoStartCheck);
-        AddRow(layout, 6, "启动延迟", launchDelayCombo);
-        AddRow(layout, 7, "启动更新检查", autoCheckUpdatesCheck);
-        AddRow(layout, 8, "通知", notificationsCheck);
-        AddRow(layout, 9, "通知阈值", thresholdInput);
-        AddRow(layout, 10, "窗口位置", restorePositionCheck);
-        AddRow(layout, 11, "视觉反馈", animationsCheck);
-        AddRow(layout, 12, "全局快捷键", hotkeyCombo);
-        AddRow(layout, 13, "周期提醒", resetNotificationsCheck);
-        AddRow(layout, 14, "预测提醒", forecastNotificationsCheck);
+        AddRow(layout, 5, "鼠标交互", clickThroughCheck);
+        AddRow(layout, 6, "开机启动", autoStartCheck);
+        AddRow(layout, 7, "启动延迟", launchDelayCombo);
+        AddRow(layout, 8, "启动更新检查", autoCheckUpdatesCheck);
+        AddRow(layout, 9, "通知", notificationsCheck);
+        AddRow(layout, 10, "通知阈值", thresholdInput);
+        AddRow(layout, 11, "窗口位置", restorePositionCheck);
+        AddRow(layout, 12, "视觉反馈", animationsCheck);
+        AddRow(layout, 13, "全局快捷键", hotkeyCombo);
+        AddRow(layout, 14, "周期提醒", resetNotificationsCheck);
+        AddRow(layout, 15, "预测提醒", forecastNotificationsCheck);
 
         FlowLayoutPanel buttons = new FlowLayoutPanel();
         buttons.FlowDirection = FlowDirection.RightToLeft;
@@ -220,7 +229,7 @@ internal sealed class SettingsForm : Form
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 15);
+        layout.Controls.Add(buttons, 0, 16);
         layout.SetColumnSpan(buttons, 2);
         ApplyControlTheme(layout);
         hint.ForeColor = palette.SecondaryText;
@@ -405,6 +414,7 @@ internal sealed class SettingsForm : Form
         draft.LaunchDelaySeconds = delayValues[delayIndex];
         draft.Theme = (ThemeMode)Math.Max(0, themeCombo.SelectedIndex);
         draft.BackgroundStyle = (BackgroundStyle)Math.Max(0, backgroundCombo.SelectedIndex);
+        draft.ClickThroughEnabled = clickThroughCheck.Checked;
         draft.AutoStartEnabled = autoStartCheck.Checked;
         draft.AutoCheckUpdates = autoCheckUpdatesCheck.Checked;
         draft.NotificationsEnabled = notificationsCheck.Checked;

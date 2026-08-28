@@ -15,10 +15,11 @@ $settings.NotificationThresholdPercent = 150
 $settings.Normalize()
 if ($settings.RefreshIntervalMinutes -ne 5) { throw 'invalid refresh interval was not normalized' }
 if ($settings.NotificationThresholdPercent -ne 80) { throw 'invalid threshold was not normalized' }
-foreach ($name in @('GlobalHotkeyEnabled', 'ResetNotificationsEnabled', 'ForecastNotificationsEnabled')) {
+foreach ($name in @('GlobalHotkeyEnabled', 'ResetNotificationsEnabled', 'ForecastNotificationsEnabled', 'ClickThroughEnabled')) {
     if ($null -eq $settingsType.GetProperty($name)) { throw "AppSettings property missing: $name" }
 }
 if (-not $settings.GlobalHotkeyEnabled) { throw 'global hotkey should be enabled by default' }
+if ($settings.ClickThroughEnabled) { throw 'click-through should be disabled by default' }
 $clone = $settings.Clone()
 if ([object]::ReferenceEquals($settings, $clone)) { throw 'settings clone shares the source object' }
 
@@ -46,6 +47,7 @@ try {
     $settings.GlobalHotkeyEnabled = $false
     $settings.ResetNotificationsEnabled = $true
     $settings.ForecastNotificationsEnabled = $true
+    $settings.ClickThroughEnabled = $true
     $store.Save($settings)
     $savedJson = [IO.File]::ReadAllText($settingsPath)
     if ($savedJson -match 'access_token|refresh_token|id_token|account_id') { throw 'settings file contains credential fields' }
@@ -56,6 +58,7 @@ try {
     if ($loaded.GlobalHotkeyEnabled) { throw 'saved global hotkey setting was not loaded' }
     if (-not $loaded.ResetNotificationsEnabled) { throw 'saved reset notification setting was not loaded' }
     if (-not $loaded.ForecastNotificationsEnabled) { throw 'saved forecast notification setting was not loaded' }
+    if (-not $loaded.ClickThroughEnabled) { throw 'saved click-through setting was not loaded' }
 
     [IO.File]::WriteAllText($settingsPath, '{ invalid json', [Text.Encoding]::UTF8)
     $fallback = $store.Load()

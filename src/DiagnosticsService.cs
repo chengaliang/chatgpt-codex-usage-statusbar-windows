@@ -103,6 +103,7 @@ internal sealed class DiagnosticsService
         report.AppendLine("启动更新检查：" + (safeSettings.AutoCheckUpdates ? "已开启（仅提示）" : "已关闭"));
         report.AppendLine("主题：" + GetThemeText(safeSettings.Theme));
         report.AppendLine("背景样式：" + GetBackgroundStyleText(safeSettings.BackgroundStyle));
+        report.AppendLine("鼠标交互：" + (safeSettings.ClickThroughEnabled ? "忽略鼠标操作（点击穿透）" : "可交互"));
         report.AppendLine("平滑动效：" + (safeSettings.AnimationsEnabled ? "已开启" : "已关闭"));
         report.AppendLine("通知：" + (safeSettings.NotificationsEnabled ? "已开启（阈值 " + safeSettings.NotificationThresholdPercent.ToString(CultureInfo.InvariantCulture) + "%）" : "已关闭"));
         report.AppendLine("本地缓存：" + (File.Exists(Path.Combine(LocalStoragePaths.RootDirectory, "cache.json")) ? "可用" : "暂无"));
@@ -335,6 +336,8 @@ internal sealed class DiagnosticsService
                 return "半透明";
             case BackgroundStyle.HighTransparency:
                 return "高透明";
+            case BackgroundStyle.UltraTransparency:
+                return "极高透明";
             default:
                 return "实色";
         }

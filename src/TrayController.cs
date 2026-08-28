@@ -11,6 +11,7 @@ internal sealed class TrayController : IDisposable
     private readonly ContextMenuStrip menu;
     private readonly Icon applicationIcon;
     private readonly bool ownsApplicationIcon;
+    private ToolStripMenuItem clickThroughMenuItem;
     private bool disposed;
 
     public TrayController(
@@ -26,7 +27,9 @@ internal sealed class TrayController : IDisposable
             showSettings,
             CreateEventHandler(runDiagnostics),
             delegate { },
-            exitApplication)
+            exitApplication,
+            null,
+            null)
     {
     }
 
@@ -44,7 +47,9 @@ internal sealed class TrayController : IDisposable
             showSettings,
             runDiagnostics,
             openProject,
-            exitApplication)
+            exitApplication,
+            null,
+            null)
     {
     }
 
@@ -56,6 +61,29 @@ internal sealed class TrayController : IDisposable
         EventHandler runDiagnostics,
         Action openProject,
         Action exitApplication)
+        : this(
+            showWindow,
+            showDetails,
+            refresh,
+            showSettings,
+            runDiagnostics,
+            openProject,
+            exitApplication,
+            null,
+            null)
+    {
+    }
+
+    public TrayController(
+        Action showWindow,
+        Action showDetails,
+        Action refresh,
+        Action showSettings,
+        EventHandler runDiagnostics,
+        Action openProject,
+        Action exitApplication,
+        Func<bool> getClickThroughEnabled,
+        Action<bool> setClickThroughEnabled)
     {
         if (showWindow == null)
         {
@@ -94,6 +122,17 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(CreateItem("设置", delegate { showSettings(); }));
         menu.Items.Add(CreateItem("诊断中心", runDiagnostics));
         menu.Items.Add(CreateItem("打开项目主页", delegate { openProject(); }));
+        if (getClickThroughEnabled != null && setClickThroughEnabled != null)
+        {
+            clickThroughMenuItem = new ToolStripMenuItem("忽略鼠标操作（点击穿透）");
+            clickThroughMenuItem.CheckOnClick = true;
+            clickThroughMenuItem.Checked = getClickThroughEnabled();
+            clickThroughMenuItem.Click += delegate(object sender, EventArgs args)
+            {
+                setClickThroughEnabled(clickThroughMenuItem.Checked);
+            };
+            menu.Items.Add(clickThroughMenuItem);
+        }
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateItem("退出", delegate { exitApplication(); }));
 
@@ -193,6 +232,18 @@ internal sealed class TrayController : IDisposable
             return;
         }
         UiTheme.StyleMenu(menu, palette);
+    }
+
+    /// <summary>
+    /// 同步托盘菜单中的点击穿透勾选状态，确保设置窗口和状态栏右键菜单修改后仍可从托盘恢复交互。
+    /// </summary>
+    public void SetClickThroughEnabled(bool enabled)
+    {
+        if (disposed || clickThroughMenuItem == null)
+        {
+            return;
+        }
+        clickThroughMenuItem.Checked = enabled;
     }
 
     public void Dispose()

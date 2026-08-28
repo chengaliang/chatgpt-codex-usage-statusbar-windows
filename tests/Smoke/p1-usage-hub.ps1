@@ -24,6 +24,8 @@ if ($null -eq $providerImplementation) { throw 'OfficialUsageProvider type is mi
 if (-not $providerType.IsAssignableFrom($providerImplementation)) { throw 'OfficialUsageProvider does not implement IUsageProvider' }
 $settingsType = $assembly.GetType('AppSettings')
 $themeType = $assembly.GetType('ThemeMode')
+$backgroundType = $assembly.GetType('BackgroundStyle')
+if ($null -eq $backgroundType -or $null -eq [Enum]::Parse($backgroundType, 'UltraTransparency', $false)) { throw 'ultra transparency background style is missing' }
 $settingsProbe = [Activator]::CreateInstance($settingsType)
 $settingsProbe.Theme = [Enum]::ToObject($themeType, 99)
 $settingsProbe.HistoryRetentionDays = 999
@@ -32,10 +34,11 @@ $settingsProbe.Normalize()
 if ($settingsProbe.Theme.ToString() -ne 'System') { throw 'invalid theme was not normalized' }
 if ($settingsProbe.HistoryRetentionDays -ne 30) { throw 'invalid history retention was not normalized' }
 if ($settingsProbe.LaunchDelaySeconds -ne 0) { throw 'invalid launch delay was not normalized' }
-foreach ($name in @('HistoryRetentionDays', 'LaunchDelaySeconds', 'AutoCheckUpdates', 'AnimationsEnabled')) {
+foreach ($name in @('HistoryRetentionDays', 'LaunchDelaySeconds', 'AutoCheckUpdates', 'AnimationsEnabled', 'ClickThroughEnabled')) {
     if ($null -eq $settingsType.GetProperty($name)) { throw "AppSettings property missing: $name" }
 }
 if (-not $settingsProbe.AnimationsEnabled) { throw 'animations should be enabled by default' }
+if ($settingsProbe.ClickThroughEnabled) { throw 'click-through should be disabled by default' }
 $settingsProbe.AnimationsEnabled = $false
 $settingsClone = $settingsProbe.Clone()
 if ($settingsClone.AnimationsEnabled) { throw 'animations setting was not cloned' }
@@ -270,9 +273,11 @@ if ([bool]$burstActiveField.GetValue($externalSurface)) { throw 'external cached
 $hub.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))
-if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 400) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
+if ($settingsForm.ShowInTaskbar -or $settingsForm.AutoScaleMode.ToString() -ne 'Dpi' -or $settingsForm.ClientSize.Height -lt 690 -or $settingsForm.MinimumSize.Height -lt 690) { throw 'SettingsForm window flags, DPI mode or expanded options layout is invalid' }
 $animationsField = $settingsFormType.GetField('animationsCheck', [Reflection.BindingFlags]'NonPublic,Instance')
 if ($null -eq $animationsField -or -not $animationsField.GetValue($settingsForm).Checked) { throw 'SettingsForm animations option is missing or not enabled by default' }
+$clickThroughField = $settingsFormType.GetField('clickThroughCheck', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $clickThroughField -or $clickThroughField.GetValue($settingsForm).Checked) { throw 'SettingsForm click-through option is missing or enabled by default' }
 $controlQueue = New-Object 'System.Collections.Generic.Queue[System.Windows.Forms.Control]'
 $controlQueue.Enqueue($settingsForm)
 while ($controlQueue.Count -gt 0) {
@@ -290,7 +295,9 @@ $report = $diagnosticsType.GetMethod('Build').Invoke($diagnostics, [object[]]@($
 $themeMarker = ([char]0x4e3b).ToString() + ([char]0x9898).ToString() + ([char]0xff1a).ToString() + ([char]0x8ddf).ToString() + ([char]0x968f).ToString() + ([char]0x7cfb).ToString() + ([char]0x7edf).ToString()
 $historyMarker = ([char]0x5386).ToString() + ([char]0x53f2).ToString() + ([char]0x4fdd).ToString() + ([char]0x7559).ToString() + ([char]0xff1a).ToString() + '30 ' + ([char]0x5929).ToString()
 $updateMarker = ([char]0x542f).ToString() + ([char]0x52a8).ToString() + ([char]0x66f4).ToString() + ([char]0x65b0).ToString() + ([char]0x68c0).ToString() + ([char]0x67e5).ToString() + ([char]0xff1a).ToString() + ([char]0x5df2).ToString() + ([char]0x5173).ToString() + ([char]0x95ed).ToString()
-if ($report -notmatch [regex]::Escape($themeMarker) -or $report -notmatch [regex]::Escape($historyMarker) -or $report -notmatch [regex]::Escape($updateMarker)) { throw 'Diagnostics report did not include normalized startup/history settings' }
+$interactionMarker = ([char]0x9f20).ToString() + ([char]0x6807).ToString() + ([char]0x4ea4).ToString() + ([char]0x4e92).ToString() + ([char]0xff1a).ToString() + ([char]0x53ef).ToString() + ([char]0x4ea4).ToString() + ([char]0x4e92).ToString()
+$backgroundMarker = ([char]0x80cc).ToString() + ([char]0x666f).ToString() + ([char]0x6837).ToString() + ([char]0x5f0f).ToString() + ([char]0xff1a).ToString() + ([char]0x5b9e).ToString() + ([char]0x8272).ToString()
+if ($report -notmatch [regex]::Escape($themeMarker) -or $report -notmatch [regex]::Escape($historyMarker) -or $report -notmatch [regex]::Escape($updateMarker) -or $report -notmatch [regex]::Escape($interactionMarker) -or $report -notmatch [regex]::Escape($backgroundMarker)) { throw 'Diagnostics report did not include normalized startup/history/interaction settings' }
 $extendedReportMethod = $diagnosticsType.GetMethod('BuildExtended')
 if ($null -eq $extendedReportMethod) { throw 'Diagnostics extended report method is missing' }
 $extendedReport = [string]$extendedReportMethod.Invoke($diagnostics, [object[]]@($loadingSnapshot, 'oauth-readable', 'system-network', $true, $false, $settingsProbe, 3, $true, $true, $false, $true, $true, [DateTimeOffset]::Now.AddMinutes(-5), [DateTimeOffset]::Now))
