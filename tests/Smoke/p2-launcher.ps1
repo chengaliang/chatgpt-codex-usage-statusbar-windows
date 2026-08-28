@@ -9,6 +9,15 @@ using System.Runtime.InteropServices;
 
 public static class LauncherSmokeNativeP2
 {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WindowRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     public delegate bool EnumWindowsCallback(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -28,6 +37,15 @@ public static class LauncherSmokeNativeP2
 
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out WindowRect rectangle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
 
     public static IntPtr FindProcessWindow(uint targetProcessId, string expectedTitle)
     {
@@ -280,6 +298,38 @@ try {
         if ([LauncherSmokeNativeP2]::IsIconic($windowHandle) -or -not [LauncherSmokeNativeP2]::IsWindowVisible($windowHandle)) {
             throw 'second launch did not restore the existing status bar window'
         }
+        # A refresh must not re-run the startup placement logic after a native move.
+        Start-Sleep -Seconds 2
+        $targetX = 120
+        $targetY = 120
+        if (-not [LauncherSmokeNativeP2]::SetWindowPos($windowHandle, [IntPtr]::Zero, $targetX, $targetY, 0, 0, 0x0015)) {
+            throw 'position smoke could not move the status bar window'
+        }
+        Start-Sleep -Milliseconds 200
+        $movedRect = New-Object 'LauncherSmokeNativeP2+WindowRect'
+        if (-not [LauncherSmokeNativeP2]::GetWindowRect($windowHandle, [ref]$movedRect) -or $movedRect.Left -ne $targetX -or $movedRect.Top -ne $targetY) {
+            throw 'position smoke could not observe the requested status bar location'
+        }
+        $refreshX = 322
+        $refreshY = 28
+        $refreshLParam = [IntPtr](($refreshY -shl 16) -bor $refreshX)
+        [LauncherSmokeNativeP2]::SendMessage($windowHandle, 0x0201, [IntPtr]1, $refreshLParam) | Out-Null
+        [LauncherSmokeNativeP2]::SendMessage($windowHandle, 0x0202, [IntPtr]::Zero, $refreshLParam) | Out-Null
+        Start-Sleep -Milliseconds 1000
+        $afterRefreshRect = New-Object 'LauncherSmokeNativeP2+WindowRect'
+        if (-not [LauncherSmokeNativeP2]::GetWindowRect($windowHandle, [ref]$afterRefreshRect) -or $afterRefreshRect.Left -ne $targetX -or $afterRefreshRect.Top -ne $targetY) {
+            throw 'status bar moved back to its default location after refresh'
+        }
+        [LauncherSmokeNativeP2]::SendMessage($windowHandle, 0x0232, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        $savedPositionPath = Join-Path $isolatedHome 'ChatGPTCodexUsageStatusBar\settings.json'
+        if (-not (Test-Path -LiteralPath $savedPositionPath)) {
+            throw 'status bar did not persist the moved position'
+        }
+        $savedPosition = Get-Content -LiteralPath $savedPositionPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($savedPosition.PositionX -ne $targetX -or $savedPosition.PositionY -ne $targetY -or -not $savedPosition.HasSavedPosition) {
+            throw 'persisted status bar position does not match the moved location'
+        }
+        'P2 position persistence smoke: PASS'
         'P2 direct launch and duplicate-instance smoke: PASS'
     }
     else {

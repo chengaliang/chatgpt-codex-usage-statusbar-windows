@@ -679,6 +679,8 @@ internal sealed class StatusWindow : Form
     private bool refreshCelebrationActive;
     private Point mouseDownLocation;
     private bool draggingBar;
+    private bool positioningMiniWindow;
+    private bool initialPositioningComplete;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -710,6 +712,7 @@ internal sealed class StatusWindow : Form
     private const int WsExNoActivate = 0x08000000;
     private const int WmNcHitTest = 0x0084;
     private const int WmMouseActivate = 0x0021;
+    private const int WmExitSizeMove = 0x0232;
     private const int HtTransparent = -1;
     private const int MaNoActivate = 3;
 
@@ -977,6 +980,12 @@ internal sealed class StatusWindow : Form
         }
 
         base.WndProc(ref message);
+        if (message.Msg == WmExitSizeMove && initialPositioningComplete && !positioningMiniWindow)
+        {
+            // 原生无边框拖动可能不经过 OnMouseMove；在系统完成移动时记录一次真实坐标，避免后续刷新覆盖用户位置。
+            userMoved = true;
+            RememberPosition();
+        }
     }
 
     protected override async void OnShown(EventArgs e)
@@ -1018,23 +1027,48 @@ internal sealed class StatusWindow : Form
 
     private void PositionMiniWindow()
     {
-        if (userMoved || !IsHandleCreated)
+        if (!IsHandleCreated)
         {
             return;
         }
-
-        if (settings.RestorePosition && settings.HasSavedPosition && IsSavedPositionVisible())
+        if (userMoved)
         {
-            SetWindowPos(Handle, IntPtr.Zero, settings.PositionX, settings.PositionY, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
+            // 用户已先于首帧完成拖动时，不再覆盖其坐标，但仍结束初始化阶段，让退出移动消息可以落盘。
+            initialPositioningComplete = true;
             return;
         }
 
-        // 以鼠标所在显示器为默认目标，避免多屏用户每次启动都跳回主屏；保存的位置优先级更高。
-        Screen targetScreen = Screen.FromPoint(Cursor.Position);
-        Rectangle workArea = targetScreen == null ? Screen.PrimaryScreen.WorkingArea : targetScreen.WorkingArea;
-        int left = Math.Max(workArea.Left + 4, workArea.Right - Width - 16);
-        int top = Math.Max(workArea.Top + 4, workArea.Bottom - Height - 16);
-        SetWindowPos(Handle, IntPtr.Zero, left, top, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
+        positioningMiniWindow = true;
+        try
+        {
+            if (settings.RestorePosition && settings.HasSavedPosition && IsSavedPositionVisible())
+            {
+                SetWindowPos(Handle, IntPtr.Zero, settings.PositionX, settings.PositionY, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
+                return;
+            }
+
+            // 以鼠标所在显示器为默认目标，避免多屏用户每次启动都跳回主屏；保存的位置优先级更高。
+            Screen targetScreen = Screen.FromPoint(Cursor.Position);
+            Rectangle workArea = targetScreen == null ? Screen.PrimaryScreen.WorkingArea : targetScreen.WorkingArea;
+            int left = Math.Max(workArea.Left + 4, workArea.Right - Width - 16);
+            int top = Math.Max(workArea.Top + 4, workArea.Bottom - Height - 16);
+            SetWindowPos(Handle, IntPtr.Zero, left, top, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
+        }
+        finally
+        {
+            positioningMiniWindow = false;
+            initialPositioningComplete = true;
+        }
+    }
+
+    protected override void OnLocationChanged(EventArgs e)
+    {
+        base.OnLocationChanged(e);
+        if (IsHandleCreated && initialPositioningComplete && !positioningMiniWindow)
+        {
+            // 位置变化是用户意图的可靠信号；不依赖拖动期间是否产生标准 WinForms 鼠标事件。
+            userMoved = true;
+        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -1497,8 +1531,6 @@ internal sealed class StatusWindow : Form
                 toolTip.SetToolTip(this, BuildTooltipText());
                 trayController.SetStatus(BuildTrayStatus());
                 Invalidate();
-                // 某些无边框窗口管理器会在异步首帧后重置位置，查询完成后再校正一次。
-                PositionMiniWindow();
             }
         }
     }
