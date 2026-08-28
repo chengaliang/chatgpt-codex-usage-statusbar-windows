@@ -8,6 +8,8 @@
 
 项目按官方返回的额度窗口工作，不把功能限定为某一个订阅计划；OAuth 凭据只在内存中使用，不上传、不写日志。默认使用系统代理或直连，需要时再配置本地 HTTP/HTTPS 代理。
 
+如果 OAuth 声明包含套餐类型，状态栏左侧会显示 `PLUS`、`PRO`、`TEAM` 等短标签，Usage Hub 和悬停提示会显示完整套餐名称；无法识别时安全回退为通用的 `GPT`。
+
 首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供打开 Usage Hub、立即刷新、主题/透明度、诊断中心、复制脱敏诊断信息、导出本地趋势、打开数据目录、分别清除趋势历史或最近成功缓存，以及检查更新，遇到问题可以直接把诊断摘要贴到 Issue。`Ctrl+Alt+U` 可从任意应用唤起或聚焦 Usage Hub。
 
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the mini UI compact at about 370×56 pixels with an on-demand Usage Hub workspace.

@@ -10,7 +10,7 @@ $assembly = [Reflection.Assembly]::LoadFrom($exePath)
 $usageType = $assembly.GetType('UsageSnapshot')
 $providerType = $assembly.GetType('IUsageProvider')
 if ($null -eq $usageType -or $null -eq $providerType) { throw 'Usage model/provider boundary is missing' }
-foreach ($name in @('ProviderId', 'Status', 'IsStale', 'LastLiveAt', 'ErrorCode')) {
+foreach ($name in @('ProviderId', 'PlanName', 'Status', 'IsStale', 'LastLiveAt', 'ErrorCode')) {
     if ($null -eq $usageType.GetProperty($name)) { throw "UsageSnapshot property missing: $name" }
 }
 foreach ($name in @('ProviderId', 'GetUsageAsync', 'GetCredentialDiagnostic', 'GetNetworkDiagnostic')) {
@@ -55,14 +55,35 @@ $nonFiniteWindow = $windowCtor.Invoke([object[]]@(18000, [double]::NaN, $null))
 if ([double]::IsNaN($nonFiniteWindow.UsedPercent) -or [double]::IsInfinity($nonFiniteWindow.UsedPercent)) { throw 'UsageWindow accepted a non-finite percentage' }
 $sanitizerType = $assembly.GetType('DiagnosticSanitizer')
 $planMethod = $sanitizerType.GetMethod('PlanName')
+if ($planMethod.Invoke($null, @('plus')) -cne 'GPT Plus') { throw 'short plus plan code was not normalized' }
+if ($planMethod.Invoke($null, @('gpt_enterprise')) -cne 'GPT Enterprise') { throw 'enterprise plan code was not normalized' }
 if ($planMethod.Invoke($null, @('GPT Pro')) -cne 'GPT Pro') { throw 'GPT Pro plan was incorrectly collapsed' }
 if ($planMethod.Invoke($null, @('GPT Team')) -cne 'GPT Team') { throw 'GPT Team plan was incorrectly collapsed' }
 if ($planMethod.Invoke($null, @('untrusted plan text')) -cne 'ChatGPT') { throw 'unknown plan text was not sanitized' }
+
+$quotaServiceType = $assembly.GetType('OfficialQuotaService')
+$quotaService = [Activator]::CreateInstance($quotaServiceType)
+$resolvePlanMethod = $quotaServiceType.GetMethod('ResolvePlanName', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $resolvePlanMethod) { throw 'OAuth plan resolver is missing' }
+$authClaims = New-Object 'System.Collections.Generic.Dictionary[string,object]'
+$authClaims['chatgpt_plan_type'] = 'plus'
+$jwtClaims = New-Object 'System.Collections.Generic.Dictionary[string,object]'
+$jwtClaims['https://api.openai.com/auth'] = $authClaims
+$payloadJson = $jwtClaims | ConvertTo-Json -Compress -Depth 5
+$payloadBytes = [Text.Encoding]::UTF8.GetBytes($payloadJson)
+$payload = [Convert]::ToBase64String($payloadBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+$tokenMap = New-Object 'System.Collections.Generic.Dictionary[string,object]'
+$tokenMap['id_token'] = 'header.' + $payload + '.signature'
+$tokenMap = $tokenMap.PSObject.BaseObject
+$resolvedPlan = [string]$resolvePlanMethod.Invoke($quotaService, [object[]]@($tokenMap))
+if ($resolvedPlan -cne 'GPT Plus') { throw "nested OAuth plan claim was not resolved: $resolvedPlan" }
+$quotaService.Dispose()
 
 $listType = [System.Collections.Generic.List``1].MakeGenericType($windowType)
 $windows = [Activator]::CreateInstance($listType)
 $windows.Add($window)
 $live = $usageType.GetMethod('LiveResult').Invoke($null, [object[]]@('chatgpt-codex', 'GPT Plus', $windows, [DateTimeOffset]::Now))
+if ($live.PlanName -cne 'GPT Plus') { throw 'live snapshot did not preserve the canonical plan name' }
 $withFailure = $live.WithFailure([Enum]::Parse($statusType, 'NetworkError', $false), 'network_unavailable', [DateTimeOffset]::Now)
 $cachedSnapshot = $withFailure.ToQuotaSnapshot()
 if (-not $cachedSnapshot.Success -or -not $cachedSnapshot.IsStale -or $cachedSnapshot.Windows.Count -ne 1) { throw 'Failure should preserve the last live windows as cached data' }

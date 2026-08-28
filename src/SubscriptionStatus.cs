@@ -121,33 +121,40 @@ internal static class DiagnosticSanitizer
         }
 
         string normalized = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        if (string.Equals(normalized, "Plus", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalized, "ChatGPT", StringComparison.OrdinalIgnoreCase))
         {
-            return "GPT Plus";
+            return "ChatGPT";
         }
 
-        string[] supportedPlans =
+        // OAuth 声明有时只返回 plus/pro 等短码，有时会返回 GPT Plus 等展示名；
+        // 统一去掉前缀和分隔符后再匹配固定白名单，避免把远端任意文本直接显示到界面。
+        string planKey = normalized.Replace('_', ' ').Replace('-', ' ').Trim();
+        if (planKey.StartsWith("GPT ", StringComparison.OrdinalIgnoreCase))
         {
-            "ChatGPT",
-            "GPT Free",
-            "GPT Go",
-            "GPT Plus",
-            "GPT Pro",
-            "GPT Team",
-            "GPT Business",
-            "GPT Enterprise",
-            "GPT Edu"
-        };
-        foreach (string supportedPlan in supportedPlans)
-        {
-            if (string.Equals(normalized, supportedPlan, StringComparison.OrdinalIgnoreCase))
-            {
-                return supportedPlan;
-            }
+            planKey = planKey.Substring(4).Trim();
         }
 
-        // 对未认识的远端计划保持通用名称，避免把接口任意文本直接写到 UI 或诊断报告。
-        return "ChatGPT";
+        switch (planKey.ToLowerInvariant())
+        {
+            case "free":
+                return "GPT Free";
+            case "go":
+                return "GPT Go";
+            case "plus":
+                return "GPT Plus";
+            case "pro":
+                return "GPT Pro";
+            case "team":
+                return "GPT Team";
+            case "business":
+                return "GPT Business";
+            case "enterprise":
+                return "GPT Enterprise";
+            case "edu":
+                return "GPT Edu";
+            default:
+                return "ChatGPT";
+        }
     }
 }
 
@@ -444,34 +451,72 @@ internal sealed class OfficialQuotaService : IDisposable
 
     private string ResolvePlanName(Dictionary<string, object> tokens)
     {
-        string idToken = GetString(tokens, "id_token");
-        if (!string.IsNullOrWhiteSpace(idToken))
+        // Codex CLI 的不同版本会把套餐声明放在 id_token 的顶层或官方 auth 对象中；
+        // 先读 id_token，再用 access_token 作为兼容回退，不读取或记录令牌本身。
+        string[] tokenKeys = { "id_token", "access_token" };
+        foreach (string tokenKey in tokenKeys)
         {
-            string[] segments = idToken.Split('.');
-            if (segments.Length >= 2)
+            string token = GetString(tokens, tokenKey);
+            string planType = ResolvePlanType(token);
+            string planName = DiagnosticSanitizer.PlanName(planType);
+            if (!string.Equals(planName, "ChatGPT", StringComparison.Ordinal))
             {
-                try
-                {
-                    string payload = DecodeBase64Url(segments[1]);
-                    Dictionary<string, object> claims = serializer.DeserializeObject(payload) as Dictionary<string, object>;
-                    string planType = GetString(claims, "https://api.openai.com/auth.chatgpt_plan_type");
-                    if (string.Equals(planType, "plus", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return "GPT Plus";
-                    }
-                    if (!string.IsNullOrWhiteSpace(planType))
-                    {
-                        return "GPT " + planType.ToUpperInvariant();
-                    }
-                }
-                catch (Exception)
-                {
-                    // 计划声明只用于标题，解析失败时使用安全的通用名称。
-                }
+                return planName;
             }
         }
 
         return "ChatGPT";
+    }
+
+    private string ResolvePlanType(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return string.Empty;
+        }
+
+        string[] segments = token.Split('.');
+        if (segments.Length < 2)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            string payload = DecodeBase64Url(segments[1]);
+            Dictionary<string, object> claims = serializer.DeserializeObject(payload) as Dictionary<string, object>;
+            if (claims == null)
+            {
+                return string.Empty;
+            }
+
+            string planType = GetString(claims, "https://api.openai.com/auth.chatgpt_plan_type");
+            if (string.IsNullOrWhiteSpace(planType))
+            {
+                planType = GetString(claims, "chatgpt_plan_type");
+            }
+
+            // 当前 Codex OAuth 使用 https://api.openai.com/auth 对象承载套餐和订阅声明。
+            Dictionary<string, object> authClaims = GetDictionary(claims, "https://api.openai.com/auth");
+            if (string.IsNullOrWhiteSpace(planType))
+            {
+                planType = GetString(authClaims, "chatgpt_plan_type");
+            }
+
+            // 保留 profile 作为旧版/未来 token 的兼容位置，但仍只接受白名单计划。
+            Dictionary<string, object> profileClaims = GetDictionary(claims, "https://api.openai.com/profile");
+            if (string.IsNullOrWhiteSpace(planType))
+            {
+                planType = GetString(profileClaims, "chatgpt_plan_type");
+            }
+
+            return planType;
+        }
+        catch (Exception)
+        {
+            // 计划声明只用于标题，解析失败时使用安全的通用名称。
+            return string.Empty;
+        }
     }
 
     private static string DecodeBase64Url(string value)
@@ -2088,12 +2133,32 @@ internal sealed class StatusWindow : Form
 
     private string CompactPlanName()
     {
-        if (!string.IsNullOrWhiteSpace(snapshot.PlanName) &&
-            snapshot.PlanName.IndexOf("Plus", StringComparison.OrdinalIgnoreCase) >= 0)
+        if (snapshot == null || string.IsNullOrWhiteSpace(snapshot.PlanName))
         {
-            return "GPT+";
+            return "GPT";
         }
-        return "GPT";
+
+        switch (snapshot.PlanName)
+        {
+            case "GPT Free":
+                return "FREE";
+            case "GPT Go":
+                return "GO";
+            case "GPT Plus":
+                return "PLUS";
+            case "GPT Pro":
+                return "PRO";
+            case "GPT Team":
+                return "TEAM";
+            case "GPT Business":
+                return "BIZ";
+            case "GPT Enterprise":
+                return "ENT";
+            case "GPT Edu":
+                return "EDU";
+            default:
+                return "GPT";
+        }
     }
 
     private void DrawWindow(Graphics g, Rectangle bounds, QuotaWindow window, string compactName, Color accent, double visualPercent)

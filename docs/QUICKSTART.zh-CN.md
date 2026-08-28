@@ -59,6 +59,7 @@ Start-Process -FilePath .\dist\SubscriptionStatus.exe -WorkingDirectory (Resolve
 
 - `5h`：5 小时窗口已使用百分比和下一次重置时间
 - `7d`：7 天窗口已使用百分比和下一次重置时间
+- 左侧套餐标签：例如 `PLUS`、`PRO`、`TEAM`；展开 Usage Hub 可查看完整套餐名称
 - `实时`：最近一次官方查询成功
 
 如果官方返回其他窗口，状态栏会自动回退显示前两个窗口，详情窗口会列出全部窗口。
