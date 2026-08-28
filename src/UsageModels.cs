@@ -18,6 +18,57 @@ internal enum UsageStatus
 }
 
 /// <summary>
+/// 一次刷新过程的用户可见反馈状态。它与 UsageStatus 分离，保证“缓存/失败”也能明确表达本次刷新已经结束，
+/// 同时避免把 Provider 的错误码或响应原文直接暴露到桌面界面。
+/// </summary>
+internal enum RefreshFeedbackKind
+{
+    None = 0,
+    Refreshing = 1,
+    Live = 2,
+    Cached = 3,
+    Failed = 4
+}
+
+/// <summary>
+/// 集中维护刷新提示文案和状态映射，状态栏、Usage Hub 与自动化测试使用同一份契约。
+/// </summary>
+internal static class RefreshFeedback
+{
+    public static string GetLabel(RefreshFeedbackKind kind)
+    {
+        switch (kind)
+        {
+            case RefreshFeedbackKind.Refreshing:
+                return "正在刷新";
+            case RefreshFeedbackKind.Live:
+                return "刷新完成";
+            case RefreshFeedbackKind.Cached:
+                return "使用缓存";
+            case RefreshFeedbackKind.Failed:
+                return "刷新失败";
+            default:
+                return string.Empty;
+        }
+    }
+
+    public static RefreshFeedbackKind FromStatus(UsageStatus status)
+    {
+        switch (status)
+        {
+            case UsageStatus.Live:
+                return RefreshFeedbackKind.Live;
+            case UsageStatus.Cached:
+                return RefreshFeedbackKind.Cached;
+            case UsageStatus.Loading:
+                return RefreshFeedbackKind.Refreshing;
+            default:
+                return RefreshFeedbackKind.Failed;
+        }
+    }
+}
+
+/// <summary>
 /// 与具体 Provider 无关的额度窗口模型。窗口名称从秒数生成，避免信任远端任意文本。
 /// </summary>
 internal sealed class UsageWindow

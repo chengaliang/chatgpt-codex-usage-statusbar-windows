@@ -630,6 +630,7 @@ internal sealed class StatusWindow : Form
 {
     private const int WindowWidth = 370;
     private const int WindowHeight = 56;
+    private const int RefreshFeedbackDurationMilliseconds = 3200;
     private const string ProjectUrl = "https://github.com/chengaliang/chatgpt-codex-usage-statusbar-windows";
     private readonly Rectangle closeArea = new Rectangle(WindowWidth - 30, 17, 20, 20);
     private readonly Rectangle refreshArea = new Rectangle(WindowWidth - 58, 17, 20, 20);
@@ -677,6 +678,9 @@ internal sealed class StatusWindow : Form
     private bool visualAnimationActive;
     private float refreshCelebrationProgress;
     private bool refreshCelebrationActive;
+    private RefreshFeedbackKind refreshFeedbackKind;
+    private string refreshFeedbackText;
+    private DateTime refreshFeedbackUntilUtc;
     private Point mouseDownLocation;
     private bool draggingBar;
     private bool positioningMiniWindow;
@@ -752,6 +756,9 @@ internal sealed class StatusWindow : Form
         }
         notificationEvaluator = new NotificationEvaluator();
         diagnosticsService = new DiagnosticsService();
+        refreshFeedbackKind = RefreshFeedbackKind.None;
+        refreshFeedbackText = string.Empty;
+        refreshFeedbackUntilUtc = DateTime.MinValue;
         startupManager = new StartupManager(Application.ExecutablePath);
         autoStartError = string.Empty;
         bool startupEnabled;
@@ -1111,9 +1118,15 @@ internal sealed class StatusWindow : Form
         Hide();
         visualTimer.Stop();
         visualAnimationActive = false;
-        // 收起到托盘意味着用户暂时不在看状态栏，丢弃未展示完的庆典，避免下次显示时播放过期反馈。
+        // 收起到托盘意味着用户暂时不在看状态栏，丢弃未展示完的庆典和已结束提示，
+        // 避免计时器停止后托盘标题永久停留在旧的“刷新完成”。刷新仍在进行时保留“正在刷新”，
+        // 其完成结果会在隐藏状态下自动跳过短时提示。
         refreshCelebrationActive = false;
         refreshCelebrationProgress = 0f;
+        if (!isRefreshing)
+        {
+            ClearRefreshFeedback();
+        }
         trayController.SetStatus(BuildTrayStatus());
     }
 
@@ -1247,6 +1260,14 @@ internal sealed class StatusWindow : Form
 
     private string BuildTrayStatus()
     {
+        if (isRefreshing)
+        {
+            return "ChatGPT/Codex 额度状态栏 · " + (string.IsNullOrWhiteSpace(refreshFeedbackText) ? "正在刷新" : refreshFeedbackText);
+        }
+        if (HasRefreshFeedback(DateTime.UtcNow))
+        {
+            return "ChatGPT/Codex 额度状态栏 · " + refreshFeedbackText;
+        }
         if (snapshot == null || !snapshot.Success)
         {
             return "ChatGPT/Codex 额度状态栏 · 等待刷新";
@@ -1256,6 +1277,72 @@ internal sealed class StatusWindow : Form
             return "ChatGPT/Codex 额度状态栏 · 使用缓存";
         }
         return "ChatGPT/Codex 额度状态栏 · " + (isRefreshing ? "刷新中" : "状态正常");
+    }
+
+    /// <summary>
+    /// 记录本次刷新要展示的短提示。刷新期间提示保持可见，结束后保留几秒让用户确认结果，
+    /// 只使用固定白名单文案，不把 Provider 的错误码或响应原文带入桌面 UI。
+    /// </summary>
+    private void SetRefreshFeedback(RefreshFeedbackKind kind, bool keepUntilRefreshCompletes)
+    {
+        refreshFeedbackKind = kind;
+        refreshFeedbackText = RefreshFeedback.GetLabel(kind);
+        refreshFeedbackUntilUtc = keepUntilRefreshCompletes
+            ? DateTime.MaxValue
+            : (Visible ? DateTime.UtcNow.AddMilliseconds(RefreshFeedbackDurationMilliseconds) : DateTime.MinValue);
+        UpdateRefreshFeedbackPresentation();
+    }
+
+    private bool HasRefreshFeedback(DateTime now)
+    {
+        if (refreshFeedbackKind == RefreshFeedbackKind.None || string.IsNullOrWhiteSpace(refreshFeedbackText))
+        {
+            return false;
+        }
+        if (isRefreshing || refreshFeedbackUntilUtc == DateTime.MaxValue)
+        {
+            return true;
+        }
+        return refreshFeedbackUntilUtc > now;
+    }
+
+    private bool ClearExpiredRefreshFeedback(DateTime now)
+    {
+        if (isRefreshing || refreshFeedbackKind == RefreshFeedbackKind.None || refreshFeedbackUntilUtc == DateTime.MaxValue || now < refreshFeedbackUntilUtc)
+        {
+            return false;
+        }
+
+        ClearRefreshFeedback();
+        return true;
+    }
+
+    private void ClearRefreshFeedback()
+    {
+        refreshFeedbackKind = RefreshFeedbackKind.None;
+        refreshFeedbackText = string.Empty;
+        refreshFeedbackUntilUtc = DateTime.MinValue;
+    }
+
+    private void UpdateRefreshFeedbackPresentation()
+    {
+        // P1 smoke 通过未初始化的 Form 验证纯状态转移；此时没有任何 WinForms 句柄或 UI 依赖。
+        if (toolTip == null && trayController == null)
+        {
+            return;
+        }
+        if (toolTip != null && !IsDisposed)
+        {
+            toolTip.SetToolTip(this, BuildTooltipText());
+        }
+        if (trayController != null)
+        {
+            trayController.SetStatus(BuildTrayStatus());
+        }
+        if (!IsDisposed && IsHandleCreated)
+        {
+            Invalidate();
+        }
     }
 
     private void ShowSettings()
@@ -1590,6 +1677,8 @@ internal sealed class StatusWindow : Form
     private void BeginVisualRefresh()
     {
         CancelRefreshCelebration();
+        // 先展示固定的“正在刷新”提示；即使关闭所有动画，状态栏仍要明确告诉用户请求已开始。
+        SetRefreshFeedback(RefreshFeedbackKind.Refreshing, true);
         if (!settings.AnimationsEnabled)
         {
             visualAnimationActive = false;
@@ -1705,6 +1794,20 @@ internal sealed class StatusWindow : Form
             shouldInvalidate = true;
         }
 
+        if (ClearExpiredRefreshFeedback(now))
+        {
+            // 提示到期后恢复常规托盘标题和悬浮提示，避免“刷新完成”一直停留成旧状态。
+            if (toolTip != null)
+            {
+                toolTip.SetToolTip(this, BuildTooltipText());
+            }
+            if (trayController != null)
+            {
+                trayController.SetStatus(BuildTrayStatus());
+            }
+            shouldInvalidate = true;
+        }
+
         // 重置时间显示精确到分钟，15 秒检查一次即可避免跨分钟时文字停留旧值。
         if (now >= nextResetPaintAt)
         {
@@ -1751,7 +1854,8 @@ internal sealed class StatusWindow : Form
             usageSnapshot = result;
             snapshot = result.ToQuotaSnapshot();
             UpdateVisualTargets(true);
-            BeginRefreshCelebration();
+            SetRefreshFeedback(RefreshFeedbackKind.Live, false);
+            BeginRefreshCelebrationForKind(RefreshFeedbackKind.Live);
             string cacheError;
             usageCache.TrySave(result, out cacheError);
             historyStore.Append(result);
@@ -1765,6 +1869,8 @@ internal sealed class StatusWindow : Form
             usageSnapshot = result;
             snapshot = result.ToQuotaSnapshot();
             UpdateVisualTargets(true);
+            SetRefreshFeedback(RefreshFeedbackKind.Cached, false);
+            BeginRefreshCelebrationForKind(RefreshFeedbackKind.Cached);
             NotifyUsageHubRefresh(result);
             return;
         }
@@ -1785,6 +1891,8 @@ internal sealed class StatusWindow : Form
             usageSnapshot = usageSnapshot.WithFailure(status, errorCode, queriedAt);
             snapshot = usageSnapshot.ToQuotaSnapshot();
             UpdateVisualTargets(true);
+            SetRefreshFeedback(RefreshFeedbackKind.Failed, false);
+            BeginRefreshCelebrationForKind(RefreshFeedbackKind.Failed);
             NotifyUsageHubRefresh(usageSnapshot);
             return;
         }
@@ -1792,14 +1900,21 @@ internal sealed class StatusWindow : Form
         usageSnapshot = UsageSnapshot.Failure("chatgpt-codex", status, errorCode, queriedAt);
         snapshot = usageSnapshot.ToQuotaSnapshot();
         UpdateVisualTargets(true);
+        SetRefreshFeedback(RefreshFeedbackKind.Failed, false);
+        BeginRefreshCelebrationForKind(RefreshFeedbackKind.Failed);
         NotifyUsageHubRefresh(usageSnapshot);
     }
 
     /// <summary>
-    /// 标记一次在线额度刷新成功。调用点位于统一结果入口，因此手动刷新、定时刷新和 Hub 刷新
-    /// 都只会各自触发一次；缓存或失败结果不会伪装成成功庆祝。
+    /// 标记一次刷新完成后的固定中心律动。调用点位于统一结果入口，因此手动刷新、定时刷新和 Hub 刷新
+    /// 都只会各自触发一次；缓存和失败会使用不同颜色，避免把它们伪装成在线成功。
     /// </summary>
     private void BeginRefreshCelebration()
+    {
+        BeginRefreshCelebrationForKind(RefreshFeedbackKind.Live);
+    }
+
+    private void BeginRefreshCelebrationForKind(RefreshFeedbackKind kind)
     {
         if (!settings.AnimationsEnabled || !Visible)
         {
@@ -1809,6 +1924,8 @@ internal sealed class StatusWindow : Form
             return;
         }
 
+        refreshFeedbackKind = kind;
+        refreshFeedbackText = RefreshFeedback.GetLabel(kind);
         refreshCelebrationProgress = 0f;
         refreshCelebrationActive = true;
         visualAnimationActive = true;
@@ -2219,6 +2336,7 @@ internal sealed class StatusWindow : Form
         DrawDivider(g, 270);
         DrawStatus(g);
         DrawActionButtons(g);
+        DrawRefreshFeedbackNotice(g);
     }
 
     private void DrawBrand(Graphics g)
@@ -2252,8 +2370,8 @@ internal sealed class StatusWindow : Form
     }
 
     /// <summary>
-    /// 绘制一次成功刷新后的固定中心律动。动画只改变同心脉冲的半径和透明度，
-    /// 不在状态栏上横向扫过，避免干扰数字阅读。
+    /// 绘制一次刷新完成后的固定中心律动。动画只改变同心脉冲的半径和透明度，
+    /// 颜色跟随实时、缓存或失败语义变化，不在状态栏上横向扫过，避免干扰数字阅读。
     /// </summary>
     private void DrawRefreshCelebration(Graphics g)
     {
@@ -2267,19 +2385,21 @@ internal sealed class StatusWindow : Form
         float centerX = 282f;
         float centerY = 20f;
         float pulse = (float)Math.Sin(progress * Math.PI);
+        Color feedbackColor = GetRefreshFeedbackColor();
+        Color rayColor = BlendColors(feedbackColor, themePalette.PrimaryAccent, 0.22f);
         for (int ringIndex = 0; ringIndex < 2; ringIndex++)
         {
             float ringProgress = Math.Min(1f, progress + ringIndex * 0.16f);
             float radius = 7f + ringProgress * 12f;
-            int ringAlpha = Math.Max(0, (int)Math.Round((142f - ringIndex * 35f) * (1f - ringProgress)));
-            using (Pen ring = new Pen(UiTheme.WithAlpha(themePalette.SecondaryAccent, ringAlpha), 1.2f + pulse * 0.5f))
+            int ringAlpha = Math.Max(0, (int)Math.Round((188f - ringIndex * 44f) * (1f - ringProgress)));
+            using (Pen ring = new Pen(UiTheme.WithAlpha(feedbackColor, ringAlpha), 1.3f + pulse * 0.6f))
             {
                 g.DrawEllipse(ring, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
             }
         }
 
-        int rayAlpha = Math.Max(0, (int)Math.Round(120f * fade));
-        using (Pen rays = new Pen(UiTheme.WithAlpha(themePalette.PrimaryAccent, rayAlpha), 1.1f))
+        int rayAlpha = Math.Max(0, (int)Math.Round(156f * fade));
+        using (Pen rays = new Pen(UiTheme.WithAlpha(rayColor, rayAlpha), 1.2f))
         {
             rays.StartCap = LineCap.Round;
             rays.EndCap = LineCap.Round;
@@ -2424,6 +2544,49 @@ internal sealed class StatusWindow : Form
     }
 
     /// <summary>
+    /// 在状态栏右下角显示短暂的刷新结果胶囊。它避开额度数字和操作按钮，
+    /// 让成功、缓存和失败都能被一眼区分；提示到期后由定时器自动收回。
+    /// </summary>
+    private void DrawRefreshFeedbackNotice(Graphics g)
+    {
+        if (!HasRefreshFeedback(DateTime.UtcNow))
+        {
+            return;
+        }
+
+        Rectangle notice = new Rectangle(272, 39, 96, 14);
+        Color feedbackColor = GetRefreshFeedbackColor();
+        int borderAlpha = 150;
+        if (settings.AnimationsEnabled && visualAnimationActive)
+        {
+            double wave = (Math.Sin(visualPhase * 0.95d) + 1d) / 2d;
+            borderAlpha = 130 + (int)Math.Round(wave * 90d);
+        }
+
+        using (GraphicsPath path = RoundedRectangle(notice, 7))
+        using (SolidBrush fill = new SolidBrush(UiTheme.WithAlpha(feedbackColor, 30)))
+        using (Pen border = new Pen(UiTheme.WithAlpha(feedbackColor, borderAlpha), 1f))
+        {
+            g.FillPath(fill, path);
+            g.DrawPath(border, path);
+        }
+        using (SolidBrush dot = new SolidBrush(feedbackColor))
+        {
+            g.FillEllipse(dot, notice.Left + 6, notice.Top + 5, 4, 4);
+        }
+        DrawAlignedText(
+            g,
+            refreshFeedbackText,
+            UiTheme.CjkFontFamily,
+            7.2f,
+            FontStyle.Bold,
+            feedbackColor,
+            new Rectangle(notice.Left + 15, notice.Top, notice.Width - 18, notice.Height),
+            StringAlignment.Near,
+            StringAlignment.Center);
+    }
+
+    /// <summary>
     /// 为常驻状态栏提供几乎静止的整体呼吸边缘。固定位置的透明度变化不会打断窄条信息的阅读节奏。
     /// </summary>
     private void DrawAmbientPulse(Graphics g)
@@ -2507,6 +2670,14 @@ internal sealed class StatusWindow : Form
 
     private Color GetOverallStatusColor()
     {
+        if (isRefreshing)
+        {
+            return themePalette.SecondaryAccent;
+        }
+        if (HasRefreshFeedback(DateTime.UtcNow))
+        {
+            return GetRefreshFeedbackColor();
+        }
         if (snapshot == null || !snapshot.Success)
         {
             return snapshot != null && snapshot.StatusText == "读取中"
@@ -2514,6 +2685,22 @@ internal sealed class StatusWindow : Form
                 : themePalette.Error;
         }
         return snapshot.IsStale ? themePalette.Warning : themePalette.Success;
+    }
+
+    private Color GetRefreshFeedbackColor()
+    {
+        switch (refreshFeedbackKind)
+        {
+            case RefreshFeedbackKind.Live:
+                return themePalette.Success;
+            case RefreshFeedbackKind.Cached:
+                return themePalette.Warning;
+            case RefreshFeedbackKind.Failed:
+                return themePalette.Error;
+            case RefreshFeedbackKind.Refreshing:
+            default:
+                return themePalette.SecondaryAccent;
+        }
     }
 
     private Color GetUsageColor(double usedPercent, Color accent)
@@ -2607,6 +2794,10 @@ internal sealed class StatusWindow : Form
         if ((!snapshot.Success || snapshot.IsStale) && !string.IsNullOrWhiteSpace(snapshot.ErrorText))
         {
             text += "\r\n" + snapshot.ErrorText;
+        }
+        if (HasRefreshFeedback(DateTime.UtcNow))
+        {
+            text += "\r\n刷新提示：" + refreshFeedbackText;
         }
         text += "\r\n点击展开 Usage Hub；右键：刷新周期、数据导出、背景样式、开机自启和诊断";
         if (settings.ClickThroughEnabled)

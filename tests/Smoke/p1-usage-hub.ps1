@@ -50,6 +50,19 @@ $statusType = $assembly.GetType('UsageStatus')
 foreach ($name in @('Loading', 'Live', 'Cached', 'OAuthExpired', 'NetworkError', 'ApiError', 'ParseError')) {
     if ($null -eq [Enum]::Parse($statusType, $name, $false)) { throw "UsageStatus value missing: $name" }
 }
+$feedbackType = $assembly.GetType('RefreshFeedbackKind')
+$feedbackTextType = $assembly.GetType('RefreshFeedback')
+if ($null -eq $feedbackType -or $null -eq $feedbackTextType) { throw 'Refresh feedback contract is missing' }
+foreach ($name in @('None', 'Refreshing', 'Live', 'Cached', 'Failed')) {
+    if ($null -eq [Enum]::Parse($feedbackType, $name, $false)) { throw "RefreshFeedbackKind value missing: $name" }
+}
+$feedbackLabelMethod = $feedbackTextType.GetMethod('GetLabel')
+$feedbackStatusMethod = $feedbackTextType.GetMethod('FromStatus')
+$liveFeedbackLabel = -join @([char]0x5237, [char]0x65b0, [char]0x5b8c, [char]0x6210)
+$cachedFeedbackLabel = -join @([char]0x4f7f, [char]0x7528, [char]0x7f13, [char]0x5b58)
+if ($feedbackLabelMethod.Invoke($null, [object[]]@([Enum]::Parse($feedbackType, 'Live', $false))) -cne $liveFeedbackLabel) { throw 'live refresh feedback label is incorrect' }
+if ($feedbackLabelMethod.Invoke($null, [object[]]@([Enum]::Parse($feedbackType, 'Cached', $false))) -cne $cachedFeedbackLabel) { throw 'cached refresh feedback label is incorrect' }
+if ($feedbackStatusMethod.Invoke($null, [object[]]@([Enum]::Parse($statusType, 'NetworkError', $false))).ToString() -cne 'Failed') { throw 'network failures should map to failed refresh feedback' }
 $windowType = $assembly.GetType('UsageWindow')
 $windowCtor = $windowType.GetConstructor([Type[]]@([int], [double], [Nullable[DateTimeOffset]]))
 $window = $windowCtor.Invoke([object[]]@(18000, 150.0, $null))
@@ -197,6 +210,7 @@ if ($null -eq $hubType -or $null -eq $hubSurfaceType) { throw 'Usage Hub present
 foreach ($name in @('SetData', 'BeginEntrance', 'AdvanceAnimation', 'SetRefreshing', 'PlayRefreshCelebration')) {
     if ($null -eq $hubSurfaceType.GetMethod($name)) { throw "UsageHubSurface method missing: $name" }
 }
+if ($null -eq $hubSurfaceType.GetMethod('SetRefreshNotice')) { throw 'UsageHubSurface refresh notice method is missing' }
 if ($null -eq $hubType.GetMethod('ApplyExternalRefresh')) { throw 'UsageHubForm external refresh method is missing' }
 $statusWindowType = $assembly.GetType('StatusWindow')
 if ($null -eq $statusWindowType.GetMethod('BeginRefreshCelebration', [Reflection.BindingFlags]'NonPublic,Instance')) {
@@ -207,7 +221,9 @@ $statusSettingsField = $statusWindowType.GetField('settings', [Reflection.Bindin
 $statusSnapshotField = $statusWindowType.GetField('snapshot', [Reflection.BindingFlags]'NonPublic,Instance')
 $statusActiveField = $statusWindowType.GetField('refreshCelebrationActive', [Reflection.BindingFlags]'NonPublic,Instance')
 $statusProgressField = $statusWindowType.GetField('refreshCelebrationProgress', [Reflection.BindingFlags]'NonPublic,Instance')
-if ($null -eq $statusSettingsField -or $null -eq $statusSnapshotField -or $null -eq $statusActiveField -or $null -eq $statusProgressField) {
+$statusFeedbackKindField = $statusWindowType.GetField('refreshFeedbackKind', [Reflection.BindingFlags]'NonPublic,Instance')
+$statusFeedbackTextField = $statusWindowType.GetField('refreshFeedbackText', [Reflection.BindingFlags]'NonPublic,Instance')
+if ($null -eq $statusSettingsField -or $null -eq $statusSnapshotField -or $null -eq $statusActiveField -or $null -eq $statusProgressField -or $null -eq $statusFeedbackKindField -or $null -eq $statusFeedbackTextField) {
     throw 'StatusWindow refresh celebration state is missing'
 }
 $statusSettingsField.SetValue($statusWindow, $settingsProbe.Clone())
@@ -217,11 +233,16 @@ $applyStatusResult = $statusWindowType.GetMethod('ApplyUsageResult', [Reflection
 $beginStatusCelebration.Invoke($statusWindow, $null)
 if ([bool]$statusActiveField.GetValue($statusWindow)) { throw 'hidden StatusWindow should not start a refresh celebration' }
 $applyStatusResult.Invoke($statusWindow, [object[]]@($live.WithCachedState([DateTimeOffset]::Now.AddMinutes(-1))))
+if ($statusFeedbackKindField.GetValue($statusWindow).ToString() -ne 'Cached' -or $statusFeedbackTextField.GetValue($statusWindow) -cne $cachedFeedbackLabel) { throw 'cached refresh feedback was not surfaced' }
 $beginStatusCelebration.Invoke($statusWindow, $null)
 $failureSnapshot = $usageType.GetMethod('Failure').Invoke($null, [object[]]@('chatgpt-codex', [Enum]::Parse($statusType, 'NetworkError', $false), 'offline', [DateTimeOffset]::Now))
 $applyStatusResult.Invoke($statusWindow, [object[]]@($failureSnapshot))
+$failedFeedbackLabel = -join @([char]0x5237, [char]0x65b0, [char]0x5931, [char]0x8d25)
+if ($statusFeedbackKindField.GetValue($statusWindow).ToString() -ne 'Failed' -or $statusFeedbackTextField.GetValue($statusWindow) -cne $failedFeedbackLabel) {
+    throw 'failed refresh feedback was not surfaced'
+}
 if ([bool]$statusActiveField.GetValue($statusWindow) -or [float]$statusProgressField.GetValue($statusWindow) -ne 0) {
-    throw 'cached or failed StatusWindow results should cancel an active refresh celebration'
+    throw 'hidden StatusWindow should not animate refresh feedback'
 }
 $palette = $paletteType.GetMethod('Create').Invoke($null, [object[]]@([Enum]::Parse($themeType, 'Dark')))
 $hubSurfaceConstructor = $hubSurfaceType.GetConstructor([Type[]]@($paletteType, [bool]))
@@ -269,7 +290,7 @@ $hub.ApplyExternalRefresh($live, $historyList)
 $externalSurface = $hubSurfaceField.GetValue($hub)
 if (-not [bool]$burstActiveField.GetValue($externalSurface)) { throw 'external live refresh did not start a Hub celebration' }
 $hub.ApplyExternalRefresh($cachedLiveSnapshot, $historyList)
-if ([bool]$burstActiveField.GetValue($externalSurface)) { throw 'external cached refresh did not cancel a Hub celebration' }
+if (-not [bool]$burstActiveField.GetValue($externalSurface)) { throw 'external cached refresh did not start a Hub celebration' }
 $hub.Dispose()
 $settingsFormType = $assembly.GetType('SettingsForm')
 $settingsForm = [Activator]::CreateInstance($settingsFormType, [object[]]@($settingsProbe))

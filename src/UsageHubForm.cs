@@ -359,21 +359,38 @@ internal sealed class UsageHubForm : Form
         try
         {
             UsageSnapshot refreshed = await refreshAction();
-            if (refreshed != null && !IsDisposed)
+            if (refreshed == null)
+            {
+                if (!IsDisposed)
+                {
+                    surface.SetRefreshNotice(RefreshFeedbackKind.Failed, false);
+                    surface.PlayRefreshCelebration();
+                }
+                return;
+            }
+
+            if (!IsDisposed)
             {
                 snapshot = refreshed.Clone();
                 IList<HistoryPoint> refreshedHistory = historyLoader == null ? history : historyLoader();
                 history = refreshedHistory == null ? new List<HistoryPoint>() : new List<HistoryPoint>(refreshedHistory);
                 surface.SetData(snapshot, history);
-                if (refreshed.Status == UsageStatus.Live)
+                RefreshFeedbackKind feedbackKind = RefreshFeedback.FromStatus(refreshed.Status);
+                if (feedbackKind != RefreshFeedbackKind.None && feedbackKind != RefreshFeedbackKind.Refreshing)
                 {
+                    surface.SetRefreshNotice(feedbackKind, false);
                     surface.PlayRefreshCelebration();
                 }
             }
         }
         catch (Exception)
         {
-            // 主窗口已经把异常收敛成安全状态；工作区只需要保持可用并恢复按钮。
+            // 主窗口通常会把异常收敛成失败快照；即使回调在关闭竞态中直接抛出，工作区也要留下明确反馈。
+            if (!IsDisposed)
+            {
+                surface.SetRefreshNotice(RefreshFeedbackKind.Failed, false);
+                surface.PlayRefreshCelebration();
+            }
         }
         finally
         {
@@ -389,7 +406,7 @@ internal sealed class UsageHubForm : Form
 
     /// <summary>
     /// 接收主状态栏的刷新结果。当定时刷新、托盘刷新或 Hub 自己的请求完成时，已打开的 Usage Hub 都要立即
-    /// 显示同一份脱敏快照；只有在线成功结果会播放一次同步脉冲，缓存和失败结果只负责安静地清理旧脉冲。
+    /// 显示同一份脱敏快照；在线、缓存和失败结果都会播放一次带语义颜色的同步脉冲。
     /// 若 Hub 自己正在刷新，则由按钮回调负责最后一次播放，避免重复触发。
     /// </summary>
     public void ApplyExternalRefresh(UsageSnapshot refreshed, IList<HistoryPoint> refreshedHistory)
@@ -404,9 +421,14 @@ internal sealed class UsageHubForm : Form
             ? new List<HistoryPoint>()
             : new List<HistoryPoint>(refreshedHistory);
         surface.SetData(snapshot, history);
-        if (!isRefreshing && refreshed.Status == UsageStatus.Live)
+        RefreshFeedbackKind feedbackKind = RefreshFeedback.FromStatus(refreshed.Status);
+        if (feedbackKind != RefreshFeedbackKind.None && feedbackKind != RefreshFeedbackKind.Refreshing)
         {
-            surface.PlayRefreshCelebration();
+            surface.SetRefreshNotice(feedbackKind, false);
+            if (!isRefreshing)
+            {
+                surface.PlayRefreshCelebration();
+            }
         }
     }
 }
@@ -416,6 +438,7 @@ internal sealed class UsageHubForm : Form
 /// </summary>
 internal sealed class UsageHubSurface : Control
 {
+    private const int RefreshNoticeDurationMilliseconds = 3200;
     private readonly ThemePalette palette;
     private readonly bool animationsEnabled;
     private UsageSnapshot snapshot;
@@ -431,11 +454,17 @@ internal sealed class UsageHubSurface : Control
     private bool refreshing;
     private float refreshBurstProgress;
     private bool refreshBurstActive;
+    private RefreshFeedbackKind refreshFeedbackKind;
+    private string refreshNotice;
+    private DateTime refreshNoticeUntilUtc;
 
     public UsageHubSurface(ThemePalette palette, bool animationsEnabled)
     {
         this.palette = palette ?? ThemePalette.Create(ThemeMode.Dark);
         this.animationsEnabled = animationsEnabled;
+        refreshFeedbackKind = RefreshFeedbackKind.None;
+        refreshNotice = string.Empty;
+        refreshNoticeUntilUtc = DateTime.MinValue;
         SetStyle(
             ControlStyles.UserPaint |
             ControlStyles.AllPaintingInWmPaint |
@@ -483,12 +512,33 @@ internal sealed class UsageHubSurface : Control
         if (value)
         {
             CancelRefreshCelebration();
+            SetRefreshNotice(RefreshFeedbackKind.Refreshing, true);
+        }
+        else if (refreshFeedbackKind == RefreshFeedbackKind.Refreshing)
+        {
+            // 回调在关闭或异常竞态中没有返回快照时，不能让“正在刷新”永久占据状态胶囊。
+            SetRefreshNotice(RefreshFeedbackKind.Failed, false);
         }
         Invalidate();
     }
 
     /// <summary>
-    /// 播放一次成功刷新后的工作区脉冲。只有在线结果调用该方法，动画结束后自动回收为静态状态。
+    /// 更新工作区底部状态胶囊。刷新期间持续显示，结果到达后保留短暂提示，
+    /// 让手动、定时和托盘触发的刷新都有一致的可见反馈。
+    /// </summary>
+    public void SetRefreshNotice(RefreshFeedbackKind kind, bool keepUntilRefreshCompletes)
+    {
+        refreshFeedbackKind = kind;
+        refreshNotice = RefreshFeedback.GetLabel(kind);
+        refreshNoticeUntilUtc = keepUntilRefreshCompletes
+            ? DateTime.MaxValue
+            : DateTime.UtcNow.AddMilliseconds(RefreshNoticeDurationMilliseconds);
+        Invalidate();
+    }
+
+    /// <summary>
+    /// 播放一次刷新完成后的工作区脉冲。在线、缓存和失败结果共享同一套动画节奏，
+    /// 但绘制颜色会跟随反馈状态区分语义；动画结束后自动回收为静态状态。
     /// </summary>
     public void PlayRefreshCelebration()
     {
@@ -511,6 +561,7 @@ internal sealed class UsageHubSurface : Control
 
     public void AdvanceAnimation()
     {
+        ClearExpiredRefreshNotice(DateTime.UtcNow);
         if (!animationsEnabled)
         {
             // FormatCountdown/FormatReset 在绘制时计算，低频重绘可让时间信息持续更新。
@@ -535,6 +586,32 @@ internal sealed class UsageHubSurface : Control
             }
         }
         Invalidate();
+    }
+
+    private bool HasRefreshNotice(DateTime now)
+    {
+        if (refreshFeedbackKind == RefreshFeedbackKind.None || string.IsNullOrWhiteSpace(refreshNotice))
+        {
+            return false;
+        }
+        if (refreshing || refreshNoticeUntilUtc == DateTime.MaxValue)
+        {
+            return true;
+        }
+        return refreshNoticeUntilUtc > now;
+    }
+
+    private bool ClearExpiredRefreshNotice(DateTime now)
+    {
+        if (refreshing || refreshFeedbackKind == RefreshFeedbackKind.None || refreshNoticeUntilUtc == DateTime.MaxValue || now < refreshNoticeUntilUtc)
+        {
+            return false;
+        }
+
+        refreshFeedbackKind = RefreshFeedbackKind.None;
+        refreshNotice = string.Empty;
+        refreshNoticeUntilUtc = DateTime.MinValue;
+        return true;
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -603,12 +680,13 @@ internal sealed class UsageHubSurface : Control
         Rectangle pill = GetStatusPillBounds(g);
         float centerX = pill.Left + pill.Width / 2f;
         float centerY = pill.Top + pill.Height / 2f;
+        Color feedbackColor = GetRefreshFeedbackColor();
         for (int ringIndex = 0; ringIndex < 3; ringIndex++)
         {
             float ringProgress = Math.Min(1f, progress + ringIndex * 0.13f);
             float radius = 16f + ringProgress * 22f;
-            int alpha = Math.Max(0, (int)Math.Round((90f - ringIndex * 18f) * (1f - ringProgress)));
-            using (Pen ring = new Pen(UiTheme.WithAlpha(palette.SecondaryAccent, alpha), 1.1f + pulse * 0.45f))
+            int alpha = Math.Max(0, (int)Math.Round((132f - ringIndex * 26f) * (1f - ringProgress)));
+            using (Pen ring = new Pen(UiTheme.WithAlpha(feedbackColor, alpha), 1.2f + pulse * 0.55f))
             {
                 g.DrawEllipse(ring, centerX - radius, centerY - radius, radius * 2f, radius * 2f);
             }
@@ -645,8 +723,8 @@ internal sealed class UsageHubSurface : Control
         DrawAlignedText(g, plan, UiTheme.CjkFontFamily, 9.5f, FontStyle.Regular, UiTheme.WithAlpha(palette.SecondaryText, alpha), new Rectangle(38, 55, 500, 18), StringAlignment.Near, StringAlignment.Center);
         DrawAlignedText(g, "健康度 · " + healthLabel, UiTheme.CjkFontFamily, 8.5f, FontStyle.Bold, UiTheme.WithAlpha(GetHealthColor(), alpha), new Rectangle(38, 73, 500, 18), StringAlignment.Near, StringAlignment.Center);
 
-        string status = GetStatusText(snapshot);
-        Color statusColor = GetStatusColor(snapshot);
+        string status = GetDisplayStatusText();
+        Color statusColor = GetDisplayStatusColor();
         Rectangle pill = GetStatusPillBounds(g);
         using (GraphicsPath path = RoundedRectangle(pill, 15))
         using (SolidBrush fill = new SolidBrush(UiTheme.WithAlpha(statusColor, 28)))
@@ -665,7 +743,7 @@ internal sealed class UsageHubSurface : Control
 
     private Rectangle GetStatusPillBounds(Graphics g)
     {
-        string status = GetStatusText(snapshot);
+        string status = GetDisplayStatusText();
         SizeF statusSize;
         using (Font font = new Font(UiTheme.CjkFontFamily, 9f, FontStyle.Bold))
         {
@@ -674,6 +752,16 @@ internal sealed class UsageHubSurface : Control
 
         int pillWidth = (int)Math.Ceiling(statusSize.Width) + 34;
         return new Rectangle(Width - pillWidth - 38, 34, pillWidth, 30);
+    }
+
+    private string GetDisplayStatusText()
+    {
+        return HasRefreshNotice(DateTime.UtcNow) ? refreshNotice : GetStatusText(snapshot);
+    }
+
+    private Color GetDisplayStatusColor()
+    {
+        return HasRefreshNotice(DateTime.UtcNow) ? GetRefreshFeedbackColor() : GetStatusColor(snapshot);
     }
 
     private void DrawMetricCards(Graphics g)
@@ -751,7 +839,7 @@ internal sealed class UsageHubSurface : Control
             {
                 float burstPulse = (float)Math.Sin(refreshBurstProgress * Math.PI);
                 int pulseAlpha = Math.Max(0, (int)Math.Round(75f + burstPulse * 95f));
-                using (Pen pulse = new Pen(UiTheme.WithAlpha(Color.White, pulseAlpha), 1.7f + burstPulse * 1.2f))
+                using (Pen pulse = new Pen(UiTheme.WithAlpha(GetRefreshFeedbackColor(), pulseAlpha), 1.7f + burstPulse * 1.2f))
                 {
                     g.DrawArc(pulse, ring, -90f, 300f);
                 }
@@ -797,7 +885,7 @@ internal sealed class UsageHubSurface : Control
         int alpha = Math.Max(0, (int)Math.Round(150f * fade));
         Rectangle pulseBounds = Rectangle.Inflate(bounds, spread, spread);
         using (GraphicsPath pulsePath = RoundedRectangle(pulseBounds, 14 + spread))
-        using (Pen pulse = new Pen(UiTheme.WithAlpha(accent, alpha), 1.5f))
+        using (Pen pulse = new Pen(UiTheme.WithAlpha(GetRefreshFeedbackColor(), alpha), 1.5f))
         {
             g.DrawPath(pulse, pulsePath);
         }
@@ -1160,6 +1248,22 @@ internal sealed class UsageHubSurface : Control
             return palette.Warning;
         }
         return value.Status == UsageStatus.Live ? palette.Success : palette.Error;
+    }
+
+    private Color GetRefreshFeedbackColor()
+    {
+        switch (refreshFeedbackKind)
+        {
+            case RefreshFeedbackKind.Live:
+                return palette.Success;
+            case RefreshFeedbackKind.Cached:
+                return palette.Warning;
+            case RefreshFeedbackKind.Failed:
+                return palette.Error;
+            case RefreshFeedbackKind.Refreshing:
+            default:
+                return palette.SecondaryAccent;
+        }
     }
 
     private static string FormatReset(DateTimeOffset? resetAt)
