@@ -2075,7 +2075,6 @@ internal sealed class StatusWindow : Form
         }
 
         DrawText(g, CompactPlanName(), "Microsoft YaHei UI", 9f, FontStyle.Bold, themePalette.PrimaryText, 23, 8);
-        DrawText(g, "USAGE", "Consolas", 5.5f, FontStyle.Bold, themePalette.SecondaryText, 23, 29);
     }
 
     /// <summary>
