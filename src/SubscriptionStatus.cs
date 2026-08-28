@@ -705,6 +705,7 @@ internal sealed class StatusWindow : Form
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
     private const int GwlExStyle = -20;
+    private const int WsExLayered = 0x00080000;
     private const int WsExTransparent = 0x00000020;
     private const int WsExNoActivate = 0x08000000;
     private const int WmNcHitTest = 0x0084;
@@ -947,7 +948,8 @@ internal sealed class StatusWindow : Form
             parameters.ExStyle |= WS_EX_TOOLWINDOW;
             if (settings != null && settings.ClickThroughEnabled)
             {
-                parameters.ExStyle |= WsExTransparent | WsExNoActivate;
+                // 分层窗口是跨进程命中穿透的基础；实色模式也必须显式加入该样式。
+                parameters.ExStyle |= WsExLayered | WsExTransparent | WsExNoActivate;
             }
             return parameters;
         }
@@ -1375,11 +1377,17 @@ internal sealed class StatusWindow : Form
         long extendedStyle = GetWindowLongPtr(Handle, GwlExStyle).ToInt64();
         if (settings.ClickThroughEnabled)
         {
-            extendedStyle |= WsExTransparent | WsExNoActivate;
+            // 即使当前背景是不透明的，也要保持 WS_EX_LAYERED，保证跨进程窗口收到实际点击。
+            extendedStyle |= WsExLayered | WsExTransparent | WsExNoActivate;
         }
         else
         {
             extendedStyle &= ~(long)(WsExTransparent | WsExNoActivate);
+            if (settings.BackgroundStyle == BackgroundStyle.Opaque)
+            {
+                // 不透明的普通交互模式不需要继续占用分层窗口路径；半透明模式则必须保留它。
+                extendedStyle &= ~(long)WsExLayered;
+            }
         }
 
         SetWindowLongPtr(Handle, GwlExStyle, new IntPtr(extendedStyle));
