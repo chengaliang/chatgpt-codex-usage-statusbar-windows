@@ -4,9 +4,11 @@
 
 > 给第一次使用 Windows 状态栏的用户：从下载到看到实时额度通常只需要几分钟。
 
-![迷你状态栏界面示意](assets/preview/status-preview-next.png)
+![PLUS 套餐迷你状态栏界面示意](assets/preview/statusbar-plus.png)
 
-图片只用于说明布局，百分比和时间会以你的账户实际返回为准。
+![Usage Hub 大屏界面示意](assets/preview/usage-hub-plus.png)
+
+图片使用脱敏演示数据，只用于说明布局和功能；百分比、套餐和时间会以你的账户实际返回为准。
 
 ## 先了解三件事
 

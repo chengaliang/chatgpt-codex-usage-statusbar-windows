@@ -1,5 +1,7 @@
-# Local design preview and screenshots; the public repository contains only the native status bar.
-docs/assets/preview/
+# Local design previews; only the selected product screenshots used by README are published.
+docs/assets/preview/*
+!docs/assets/preview/statusbar-plus.png
+!docs/assets/preview/usage-hub-plus.png
 index.html
 styles.css
 script.js

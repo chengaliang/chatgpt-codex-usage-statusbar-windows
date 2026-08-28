@@ -10,6 +10,18 @@
 
 如果 OAuth 声明包含套餐类型，状态栏左侧会显示 `PLUS`、`PRO`、`TEAM` 等短标签，Usage Hub 和悬停提示会显示完整套餐名称；无法识别时安全回退为通用的 `GPT`。
 
+## 界面预览
+
+<div align="center">
+  <img src="docs/assets/preview/statusbar-plus.png" width="370" alt="PLUS 套餐迷你额度状态栏，显示 5 小时和 7 天用量" />
+  <br />
+  <sub>迷你状态栏：套餐标签、双窗口用量、进度条、重置时间和刷新入口</sub>
+  <br /><br />
+  <img src="docs/assets/preview/usage-hub-plus.png" width="820" alt="Usage Hub 大屏，显示 GPT Plus 套餐、额度卡、本地趋势和操作按钮" />
+  <br />
+  <sub>Usage Hub：完整套餐名称、额度卡、本地趋势和诊断/导出/设置操作</sub>
+</div>
+
 首次启动默认开启当前 Windows 用户的开机自启，不需要管理员权限；状态栏右键可关闭或重新开启。右键菜单还提供打开 Usage Hub、立即刷新、主题/透明度、诊断中心、复制脱敏诊断信息、导出本地趋势、打开数据目录、分别清除趋势历史或最近成功缓存，以及检查更新，遇到问题可以直接把诊断摘要贴到 Issue。`Ctrl+Alt+U` 可从任意应用唤起或聚焦 Usage Hub。
 
 > Unofficial Windows desktop status bar for ChatGPT and Codex CLI usage limits. Reads local Codex OAuth credentials in memory, supports optional HTTP/HTTPS proxies, and keeps the mini UI compact at about 370×56 pixels with an on-demand Usage Hub workspace.
